@@ -17,4 +17,6 @@ failed_tests/
 rv64_failed_tests/
 /*.s
 
+submit.zip
+
 __pycache__
