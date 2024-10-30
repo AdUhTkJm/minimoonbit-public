@@ -453,7 +453,7 @@ pub fn augment(s: @types.Syntax) -> @types.Syntax {
     LetRec(@types.Fundef:: { name: ("read_int", Fun([], Int)), args: [], body:
         ApplyExtern("minimbt_read_int", [])},
     LetRec(@types.Fundef:: { name: ("read_char", Fun([], Int)), args: [], body:
-        ApplyExtern("minimbt_read_char", [Var("__internal")])},
+        ApplyExtern("minimbt_read_char", [])},
     LetRec(@types.Fundef:: { name: ("int_of_float", Fun([Double], Int)), args: [("__internal", Double)], body:
         ApplyExtern("minimbt_int_of_float", [Var("__internal")])},
     LetRec(@types.Fundef:: { name: ("float_of_int", Fun([Int], Double)), args: [("__internal", Int)], body:

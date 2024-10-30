@@ -28,7 +28,7 @@ fn Stages::next(self : Stages) -> Stages {
         Stages::Typecheck => Stages::Knf
         Stages::Knf => Stages::KnfOpt
         Stages::KnfOpt => Stages::Closure
-        Stages::Closure => @util.die("TODO")
+        Stages::Closure => Stages::Asm
         Stages::Asm => Stages::Finished
         Stages::Finished => Stages::Finished
     }
@@ -101,19 +101,15 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             self.knf = Some(knf)
         }
         KnfOpt => {
-            let knf = self.knf.unwrap()
-            // TODO: optimize
+            let knf = self.knf.unwrap();
             self.opt_knf = Some(knf)
         }
         Closure => {
-            let closure_ir = @closure.knf_program_to_closure(
-                self.opt_knf.unwrap(),
-                Map::from_iter(externals().iter()),
-            )
+            let closure_ir = @closure.closure(self.opt_knf.unwrap())
             self.closure_ir = Some(closure_ir)
         }
         Asm => {
-            let real_asm = @riscv.emit(@util.die("TODO"))
+            let real_asm = @riscv.emit(@util.die("TODO: Asm phase"))
             self.asm = Some(real_asm)
         }
         Finished => ()
@@ -130,7 +126,7 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
             Knf => @json.stringify(self.typechecked.unwrap().to_json())
             KnfOpt => @json.stringify(self.knf.unwrap().to_json())
             Closure => @json.stringify(self.opt_knf.unwrap().to_json())
-            Asm => @util.die("TODO")
+            Asm => @json.stringify(self.closure_ir.unwrap().to_json())
             Finished => @riscv.print_functions(self.asm.unwrap())
         }
     } else {
@@ -140,7 +136,7 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
             Knf => self.typechecked.unwrap().to_string()
             KnfOpt => self.knf.unwrap().to_string()
             Closure => self.opt_knf.unwrap().to_string()
-            Asm => @util.die("TODO")
+            Asm => self.closure_ir.unwrap().to_string()
             Finished => @riscv.print_functions(self.asm.unwrap())
         }
     }

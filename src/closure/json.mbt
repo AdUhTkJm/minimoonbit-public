@@ -22,8 +22,8 @@ pub fn Expr::to_json(self : Expr) -> Json {
     Expr::Var(n) => ["Var", n.to_json()]
     Expr::MakeClosure((n, t), c, e) =>
       ["MakeClosure", [n.to_json(), t.to_json()], c.to_json(), e.to_json()]
-    Expr::CallClosure(n, ns) => ["CallClosure", n.to_json(), ns.to_json()]
-    Expr::CallDirect(l, ns) => ["CallDirect", l._.to_json(), ns.to_json()]
+    Expr::Call(n, ns) => ["Call", n.to_json(), ns.to_json()]
+    Expr::CallExternal(l, ns) => ["CallExternal", l._.to_json(), ns.to_json()]
     Expr::MakeTuple(ns) => ["MakeTuple", ns.to_json()]
     Expr::LetTuple(n_ts, n, e) => {
       let n_ts_res = []
@@ -82,19 +82,19 @@ pub fn Expr::from_json(json : Json) -> Expr! {
         Closure::from_json!(c),
         Expr::from_json!(e),
       )
-    ["CallClosure", n, Array(ns)] => {
+    ["Call", n, Array(ns)] => {
       let ns_res = []
       for n in ns {
         ns_res.push(Name::from_json!(n))
       }
-      Expr::CallClosure(Name::from_json!(n), ns_res)
+      Expr::Call(Name::from_json!(n), ns_res)
     }
-    ["CallDirect", String(l), Array(ns)] => {
+    ["CallExternal", String(l), Array(ns)] => {
       let ns_res = []
       for n in ns {
         ns_res.push(Name::from_json!(n))
       }
-      Expr::CallDirect(Label(l), ns_res)
+      Expr::CallExternal(Label(l), ns_res)
     }
     ["MakeTuple", Array(ns)] => {
       let ns_res = []
@@ -135,8 +135,7 @@ pub fn LowType::to_json(self : LowType) -> Json {
     LowType::Double => ["Double"]
     LowType::Tuple(ts) => ["Tuple", ts.to_json()]
     LowType::Array(t) => ["Array", t.to_json()]
-    LowType::DirectFn(ts, t) => ["DirectFunction", ts.to_json(), t.to_json()]
-    LowType::ClosureFn(ts, t) => ["ClosureFunction", ts.to_json(), t.to_json()]
+    LowType::Fun(ts, t) => ["Function", ts.to_json(), t.to_json()]
   }
 }
 
@@ -155,19 +154,12 @@ pub fn LowType::from_json(json : Json) -> LowType! {
       LowType::Tuple(ts_res)
     }
     ["Array", t] => LowType::Array(LowType::from_json!(t))
-    ["DirectFunction", Array(ts), t] => {
+    ["Function", Array(ts), t] => {
       let ts_res = []
       for t in ts {
         ts_res.push(LowType::from_json!(t))
       }
-      LowType::DirectFn(ts_res, LowType::from_json!(t))
-    }
-    ["ClosureFunction", Array(ts), t] => {
-      let ts_res = []
-      for t in ts {
-        ts_res.push(LowType::from_json!(t))
-      }
-      LowType::ClosureFn(ts_res, LowType::from_json!(t))
+      LowType::Fun(ts_res, LowType::from_json!(t))
     }
     _ => fail!("invalid json")
   }
@@ -209,7 +201,7 @@ pub fn FuncDef::to_json(self : FuncDef) -> Json {
     },
     "formal_free_vars": {
       let res = []
-      for nt in self.formal_free_vars {
+      for nt in self.captured {
         let (n, t) = nt
         res.push(Json::Array([n.to_json(), t.to_json()]))
       }
@@ -253,7 +245,7 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
         is_closure: @json.from_json!(b),
         ty: LowType::from_json!(t),
         args: args_res,
-        formal_free_vars: formal_free_vars_res,
+        captured: formal_free_vars_res,
         body: Expr::from_json!(body),
       }
     }

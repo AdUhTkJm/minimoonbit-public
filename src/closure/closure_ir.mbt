@@ -26,8 +26,8 @@ pub enum Expr {
   Let((Name, LowType), Expr, Expr)
   Var(Name)
   MakeClosure((Name, LowType), Closure, Expr)
-  CallClosure(Name, Array[Name])
-  CallDirect(Label, Array[Name])
+  Call(Name, Array[Name])
+  CallExternal(Label, Array[Name])
   MakeTuple(Array[Name])
   LetTuple(Array[(Name, LowType)], Name, Expr)
   ArrayGet(Name, Name)
@@ -48,7 +48,7 @@ pub struct FuncDef {
   is_closure : Bool
   ty : LowType
   args : Array[(Name, LowType)]
-  formal_free_vars : Array[(Name, LowType)]
+  captured : Array[(Name, LowType)]
   body : Expr
 } derive(Show)
 

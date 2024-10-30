@@ -1,4 +1,4 @@
-fn real(ty: @types.Type) -> @types.Type {
+pub fn real(ty: @types.Type) -> @types.Type {
     match ty {
         Var(z) => {
             match z.val {

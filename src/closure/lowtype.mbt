@@ -4,8 +4,7 @@ pub enum LowType {
   Bool
   Int
   Double
-  ClosureFn(Array[LowType], LowType) // (fn_ptr, closure_args...)
-  DirectFn(Array[LowType], LowType) // fn_ptr itself
+  Fun(Array[LowType], LowType)
   Tuple(Array[LowType])
   Array(LowType)
   Ptr
@@ -13,7 +12,7 @@ pub enum LowType {
 
 pub fn LowType::is_ptr_like(self : LowType) -> Bool {
   match self {
-    ClosureFn(_) | DirectFn(_) | Tuple(_) | Array(_) | Ptr => true
+    Fun(_) | Tuple(_) | Array(_) | Ptr => true
     _ => false
   }
 }

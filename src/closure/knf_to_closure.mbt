@@ -4,48 +4,44 @@ typealias Set = @immut/hashset.T[@knf.Name]
 fn union(a: Set, b: Set) -> Set {
     let mut l = a;
     for z in b {
-        l = a.add(z);
+        l = l.add(z);
     }
     a;
 }
-
-let typing: Map[Name, LowType] = Map::new();
-
 fn captured(e: @knf.Knf) -> Set {
     match e {
         Int(_) | Double(_) | Unit => @immut/hashset.T::new()
 
-        Var(z) => {
-            typing[z] = lowtype(@knf.typing[z].unwrap());
-            @immut/hashset.T::from_array([z])
-        }
+        Put(a, b, c) =>
+            @immut/hashset.T::from_array([a, b, c])
 
-        Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) => {
-            typing[a] = Int;
-            typing[b] = Int;
+        Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) |
+        FAdd(a, b) | FSub(a, b) | FMul(a, b) | FDiv(a, b) |
+        Eq(a, b) | Le(a, b) | Get(a, b) => 
             @immut/hashset.T::from_array([a, b])
-        }
-        FAdd(a, b) | FSub(a, b) | FMul(a, b) | FDiv(a, b) => {
-            typing[a] = Double;
-            typing[b] = Double;
-            @immut/hashset.T::from_array([a, b])
-        }
-        Eq(a, b) | Le(a, b) => {
-            @immut/hashset.T::from_array([a, b])
-        }
 
+        Neg(a) | BNeg(a) | FNeg(a) | Var(a) => 
+            @immut/hashset.T::from_array([a])
 
+        ExternalArray(_) => @util.die("External array not supported")
+        ExternalFunctionApplication(_, args) => @immut/hashset.T::from_array(args)
         Apply(f, args) => @immut/hashset.T::from_array([f, ..args])
+        Tuple(arr) => @immut/hashset.T::from_array(arr)
 
-        Let((x, t), val, w) => {
-            typing[x] = lowtype(t);
+        IfEq(a, b, l, r) | IfLe(a, b, l, r) => {
+            let mut z = union(captured(l), captured(r));
+            z = z.add(a).add(b);
+            z
+        }
+
+
+        Let((x, _), val, w) => {
             union(captured(val), captured(w)).remove(x)
         }
-        LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
-            let mut z = captured(syn).remove(f_name)
+        LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
+            let mut z = captured(syn);
             for y in args {
                 z = z.remove(y.0);
-                typing[y.0] = lowtype(y.1);
             }
             union(z, captured(w)).remove(f_name);
         }
@@ -53,17 +49,14 @@ fn captured(e: @knf.Knf) -> Set {
             let mut z = captured(w).add(n);
             for y in arr {
                 z = z.remove(y.0);
-                typing[y.0] = lowtype(y.1);
             }
             z;
         }
-        
-        z => @util.die("Undefined \{z}")
     }
 }
 
 pub fn lowtype(x: @types.Type) -> LowType {
-    match x {
+    match @typing.real(x) {
         Int => Int
         Double => Double
         Unit => Unit
@@ -71,13 +64,13 @@ pub fn lowtype(x: @types.Type) -> LowType {
         Tuple(x) => Tuple(x.map(lowtype))
         Array(x) => Array(lowtype(x))
         Ptr => Ptr
-        Fun(args, ret) => ClosureFn(args.map(lowtype), lowtype(ret))
+        Fun(args, ret) => Fun(args.map(lowtype), lowtype(ret))
         _ => @util.die("Can't appear here: \{x}");
     }
 }
 
 let funcs: Array[FuncDef] = [];
-pub fn convert(knf: @knf.Knf, extern_env: Map[String, Type]) -> Expr {
+pub fn convert(knf: @knf.Knf) -> Expr {
     match knf {
         Unit => Unit
         Int(x) => Int(x)
@@ -101,50 +94,37 @@ pub fn convert(knf: @knf.Knf, extern_env: Map[String, Type]) -> Expr {
         Get(x, inner) => ArrayGet(x, inner)
 
         ExternalArray(_) => @util.die("External array is not supported")
-        ExternalFunctionApplication(name, args) => CallDirect(name, args)
+        ExternalFunctionApplication(name, args) => CallExternal(name, args)
 
-        Let((name, ty), b, c) => Let((name, lowtype(ty)), convert(b, extern_env), convert(c, extern_env))
+        Let((name, ty), b, c) => Let((name, lowtype(ty)), convert(b), convert(c))
 
-        IfEq(a, b, c, d) => IfEq(a, b, convert(c, extern_env), convert(d, extern_env))
-        IfLe(a, b, c, d) => IfLe(a, b, convert(c, extern_env), convert(d, extern_env))
+        IfEq(a, b, c, d) => IfEq(a, b, convert(c), convert(d))
+        IfLe(a, b, c, d) => IfLe(a, b, convert(c), convert(d))
 
-        LetTuple(arr, val, w) => LetTuple(arr.map(fn (z) { (z.0, lowtype(z.1)) }), val, convert(w, extern_env))
+        LetTuple(arr, val, w) => LetTuple(arr.map(fn (z) { (z.0, lowtype(z.1)) }), val, convert(w))
 
         Apply(f, args) => {
-            let mut val = CallClosure(f, args);
-            for z in funcs {
-                if (z.old_name == f) {
-                    if (z.is_closure.not()) {
-                        val = CallDirect(z.name, args)
-                    }
-                    break;
-                }
-            }
-            val
+            Call(f, args)
         }
         LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
             let cap = Array::from_iter(captured(knf).iter());
             let lowty = lowtype(ty);
-            println("\{f_name}(...) captured \{cap}");
             funcs.push(FuncDef :: {
                 name: f_name.name.unwrap(),
                 old_name: f_name,
-                is_closure: true,
+                is_closure: cap.length() != 0,
                 ty: lowty,
                 args: args.map(fn (z) { (z.0, lowtype(z.1)) }),
-                formal_free_vars: cap.map(fn (z) { (z, typing[z].unwrap()) }),
-                body: convert(syn, extern_env)
+                captured: cap.map(fn (z) { (z, lowtype(@knf.typing[z].unwrap())) }),
+                body: convert(syn)
             });
-            MakeClosure((f_name, lowty), Closure::{ name: f_name.name.unwrap(), actual_free_vars: cap }, convert(w, extern_env))
+            convert(w);
         }
         
     }
 }
 
-pub fn knf_program_to_closure(
-    prog : @knf.Knf,
-    extern_env : Map[String, Type]
-) -> Program {
-    let body = convert(prog, extern_env);
+pub fn closure(prog: @knf.Knf) -> Program {
+    let body = convert(prog);
     return Program::{ fundefs: funcs, body: body };
 }
