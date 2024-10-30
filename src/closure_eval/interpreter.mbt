@@ -15,7 +15,7 @@ pub enum Value {
     Tuple(Array[Value])
     Array(Array[Value])
     ExternFn(String)
-    Func(@closure.FuncDef)
+    Func(@closure.FuncDef, Array[Value])
 } derive(Show)
 
 pub fn Value::op_equal(self : Value, other : Value) -> Bool {
@@ -46,7 +46,12 @@ pub fn ClosureInterpreter::add_extern_fn(
 fn find(self: ClosureInterpreter, name : Name) -> Value!Failure {
     for z in self.functions {
         if (z.old_name == name) {
-            return Func(z);
+            let env: Array[Value] = [];
+            for i = 0; i < z.captured.length(); i = i + 1 {
+                let (x, _) = z.captured[i]
+                env.push(self.find!(x))
+            }
+            return Func(z, env);
         }
     }
     self.env.find(name).or_error!(Failure("variable not found: \{name} in env \{self.env}"))
@@ -232,7 +237,7 @@ pub fn ClosureInterpreter::eval(
                 args.push(self.find!(x));
             }
             match self.find!(n) {
-                Func(def) => self.eval_fn!(def, args);
+                Func(def, env) => self.eval_fn!(env, def, args);
                 _ => @util.die("call invoked on non-function \{n}")
             }
         }
@@ -280,11 +285,15 @@ pub fn ClosureInterpreter::eval(
             }
             Unit
         }
+        CopyValue(f, w) => {
+            self.env = self.env.add(f, self.find!(f));
+            self.eval!(w);
+        }
         ExternalArray(_) => fail!("ExternalArray is not supported")
     }
 }
 
-pub fn ClosureInterpreter::eval_fn(self: ClosureInterpreter, func: @closure.FuncDef, args: Array[Value]) -> Value!Failure {
+pub fn ClosureInterpreter::eval_fn(self: ClosureInterpreter, copied: Array[Value], func: @closure.FuncDef, args: Array[Value]) -> Value!Failure {
     let mut env = self.env;
     for i = 0; i < func.args.length(); i = i + 1 {
         let (x, _) = func.args[i]
@@ -292,8 +301,8 @@ pub fn ClosureInterpreter::eval_fn(self: ClosureInterpreter, func: @closure.Func
     }
     for i = 0; i < func.captured.length(); i = i + 1 {
         let (x, _) = func.captured[i]
-        env = env.add(x, self.find!(x))
+        env = env.add(x, copied[i])
     }
-    self.env = env.add(func.old_name, Func(func));
+    self.env = env.add(func.old_name, Func(func, copied));
     self.eval!(func.body)
 }

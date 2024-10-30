@@ -5,54 +5,54 @@ pub typealias Name = @types.Name
 pub typealias Type = @types.Type
 
 pub enum Expr {
-  Unit
-  Int(Int)
-  Double(Double)
-  Neg(Name)
-  Add(Name, Name)
-  Sub(Name, Name)
-  Mul(Name, Name)
-  Div(Name, Name)
-  FNeg(Name)
-  BNeg(Name)
-  FAdd(Name, Name)
-  FSub(Name, Name)
-  FMul(Name, Name)
-  FDiv(Name, Name)
-  Eq(Name, Name)
-  Le(Name, Name)
-  IfEq(Name, Name, Expr, Expr)
-  IfLe(Name, Name, Expr, Expr)
-  Let((Name, LowType), Expr, Expr)
-  Var(Name)
-  MakeClosure((Name, LowType), Closure, Expr)
-  Call(Name, Array[Name])
-  CallExternal(Label, Array[Name])
-  MakeTuple(Array[Name])
-  LetTuple(Array[(Name, LowType)], Name, Expr)
-  ArrayGet(Name, Name)
-  ArrayPut(Name, Name, Name)
-  ExternalArray(Label)
+    Unit
+    Int(Int)
+    Double(Double)
+    Neg(Name)
+    Add(Name, Name)
+    Sub(Name, Name)
+    Mul(Name, Name)
+    Div(Name, Name)
+    FNeg(Name)
+    BNeg(Name)
+    FAdd(Name, Name)
+    FSub(Name, Name)
+    FMul(Name, Name)
+    FDiv(Name, Name)
+    Eq(Name, Name)
+    Le(Name, Name)
+    IfEq(Name, Name, Expr, Expr)
+    IfLe(Name, Name, Expr, Expr)
+    Let((Name, LowType), Expr, Expr)
+    Var(Name)
+    CopyValue(Name, Expr)
+    Call(Name, Array[Name])
+    CallExternal(Label, Array[Name])
+    MakeTuple(Array[Name])
+    LetTuple(Array[(Name, LowType)], Name, Expr)
+    ArrayGet(Name, Name)
+    ArrayPut(Name, Name, Name)
+    ExternalArray(Label)
 } derive(Show)
 
 pub struct Closure {
-  name : Label
-  actual_free_vars : Array[Name]
+    name : Label
+    actual_free_vars : Array[Name]
 } derive(Show)
 
 pub struct FuncDef {
-  name : Label
-  old_name : Name
-  /// true if the function is a closure function, and the closure will be available at `s11` on 
-  /// function entry.
-  is_closure : Bool
-  ty : LowType
-  args : Array[(Name, LowType)]
-  captured : Array[(Name, LowType)]
-  body : Expr
+    name : Label
+    old_name : Name
+    /// true if the function is a closure function, and the closure will be available at `s11` on 
+    /// function entry.
+    is_closure : Bool
+    ty : LowType
+    args : Array[(Name, LowType)]
+    captured : Array[(Name, LowType)]
+    body : Expr
 } derive(Show)
 
 pub struct Program {
-  fundefs : Array[FuncDef]
-  body : Expr
+    fundefs : Array[FuncDef]
+    body : Expr
 } derive(Show)
