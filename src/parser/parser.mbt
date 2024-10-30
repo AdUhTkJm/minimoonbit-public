@@ -441,3 +441,18 @@ pub fn parse(tks: Array[@lex.Token]) -> @types.Syntax {
 
     return toplevel();
 }
+
+// Add internal things
+pub fn augment(s: @types.Syntax) -> @types.Syntax {
+    LetRec(@types.Fundef:: { name: ("print_int", Fun([Int], Unit)), args: [("__internal", Int)], body:
+        ApplyExtern("minimbt_print_int", [Var("__internal")])}, 
+    LetRec(@types.Fundef:: { name: ("print_endline", Fun([], Unit)), args: [], body:
+        ApplyExtern("minimbt_print_endline", [])},
+    LetRec(@types.Fundef:: { name: ("truncate", Fun([Double], Int)), args: [("__internal", Double)], body:
+        ApplyExtern("minimbt_truncate", [Var("__internal")])},
+    LetRec(@types.Fundef:: { name: ("int_of_float", Fun([Double], Int)), args: [("__internal", Double)], body:
+        ApplyExtern("minimbt_int_of_float", [Var("__internal")])},
+    LetRec(@types.Fundef:: { name: ("float_of_int", Fun([Int], Double)), args: [("__internal", Int)], body:
+        ApplyExtern("minimbt_float_of_int", [Var("__internal")])}, s
+    )))))
+}

@@ -50,7 +50,7 @@ fn captured(e: @knf.Knf) -> Set {
             union(z, captured(w)).remove(f_name);
         }
         LetTuple(arr, n, w) => {
-            let mut z = captured(w);
+            let mut z = captured(w).add(n);
             for y in arr {
                 z = z.remove(y.0);
                 typing[y.0] = lowtype(y.1);

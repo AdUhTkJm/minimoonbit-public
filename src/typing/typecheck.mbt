@@ -184,6 +184,13 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             unify(ta, tb);
             Bool
         }
+        ApplyExtern(_, args) => {
+            // necessary for lookup()
+            for z in args {
+                ignore(infer(z, env));
+            }
+            Var(Ref::new(None))
+        }
     }
     typing[ast] = z;
     z;
@@ -214,14 +221,9 @@ pub fn typed(ast: @types.Syntax) -> @types.Syntax {
 }
 
 pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {
-    eglob["print_int"] = Fun([Int], Unit);
     eglob["print_char"] = Fun([Int], Unit);
     eglob["read_int"] = Fun([], Int);
     eglob["read_char"] = Fun([], Int);
-    eglob["truncate"] = Fun([Double], Int);
-    eglob["print_endline"] = Fun([], Unit);
-    eglob["int_of_float"] = Fun([Double], Int);
-    eglob["float_of_int"] = Fun([Int], Double);
     eglob["floor"] = Fun([Double], Double);
     eglob["abs_float"] = Fun([Double], Double);
     eglob["sqrt"] = Fun([Double], Double);

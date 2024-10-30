@@ -18,6 +18,7 @@ pub enum Syntax {
     LetRec(Fundef, Syntax) // fn f() {} ; _
     LetTuple(Array[(String, Type)], Syntax, Syntax) // let (_ , _) : (_, _)= _; _
     Put(Syntax, Syntax, Syntax) // _[_] = _
+    ApplyExtern(String, Array[Syntax]) // extern_function(_, _, ...)
 } derive(Show, Eq)
 
 pub fn Syntax::hash(self: Syntax) -> Int {

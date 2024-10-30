@@ -103,6 +103,15 @@ pub fn KnfInterpreter::eval(
         _ => fail!("type mismatch, div expects Int")
       }
     }
+    Eq(x, y) => {
+      let x = find!(env, x)
+      let y = find!(env, y)
+      match (x, y) {
+        (Int(x), Int(y)) => Int(if (x == y) {1} else {0})
+        (Double(x), Double(y)) => Int(if (x == y) {1} else {0})
+        _ => fail!("type mismatch, eq expects Int / Double")
+      }
+    }
     FNeg(x) => {
       let x = find!(env, x)
       match x {
@@ -269,5 +278,6 @@ pub fn KnfInterpreter::eval(
       }
       f(argv)
     }
+    z => @util.die("Unexpected when interpreting \{z}")
   }
 }

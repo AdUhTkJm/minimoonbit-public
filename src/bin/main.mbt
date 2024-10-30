@@ -90,21 +90,17 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
         Parse => {
             let source_code = self.source_code.unwrap()
             let parsed = @parser.parse(@lex.lex(source_code));
-            println("\nAST:\n\n\{parsed}\n");
-            self.ast = Some(parsed)
+            let augmented = @parser.augment(parsed);
+            println("\nAST:\n\n\{augmented}\n");
+            self.ast = Some(augmented)
         }
         Typecheck => {
             self.typechecked = Some(@typing.typecheck(self.ast.unwrap()));
             println("\nTypechecked:\n\n\{self.typechecked.unwrap()}\n");
         }
         Knf => {
-            let knf = self.knf_env.to_knf(self.typechecked.unwrap())
+            let knf = self.knf_env.to_knf(self.typechecked.unwrap());
             println("\nKNF:\n\n\{knf}\n");
-            try {
-                println("\nResult: \{@knf_eval.new().eval_full!(knf)}\n");
-            } catch {
-                Failure(f) => println("Eval error: \{f}\n\n");
-            }
             self.knf = Some(knf)
         }
         KnfOpt => {
