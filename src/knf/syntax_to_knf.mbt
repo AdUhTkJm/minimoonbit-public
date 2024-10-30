@@ -45,7 +45,6 @@ fn KnfEnv::add(self: KnfEnv, name: String, ty: @types.Type) -> Unit {
 }
 
 pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
-    println("to_knf: \{s}")
     match s {
         Unit => Unit
         Int(x) => Int(x)

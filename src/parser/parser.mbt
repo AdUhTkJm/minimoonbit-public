@@ -435,8 +435,6 @@ fn toplevel() -> @types.Syntax {
 }
 
 pub fn parse(tks: Array[@lex.Token]) -> @types.Syntax {
-    println("\nLexer:\n\n\{tks}\n");
-
     tin.tokens = tks;
 
     return toplevel();
