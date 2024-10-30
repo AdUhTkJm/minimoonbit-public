@@ -71,6 +71,14 @@ pub fn KnfInterpreter::eval(
         _ => fail!("type mismatch, neg expects Int")
       }
     }
+    BNeg(x) => {
+        let x = find!(env, x)
+        match x {
+            Int(0) => Int(1)
+            Int(1) => Int(0)
+            _ => fail!("type mismatch, bneg expects Int(0) or Int(1)")
+        }
+    }
     Add(x, y) => {
       let x = find!(env, x)
       let y = find!(env, y)
@@ -110,6 +118,15 @@ pub fn KnfInterpreter::eval(
         (Int(x), Int(y)) => Int(if (x == y) {1} else {0})
         (Double(x), Double(y)) => Int(if (x == y) {1} else {0})
         _ => fail!("type mismatch, eq expects Int / Double")
+      }
+    }
+    Le(x, y) => {
+      let x = find!(env, x)
+      let y = find!(env, y)
+      match (x, y) {
+        (Int(x), Int(y)) => Int(if (x <= y) {1} else {0})
+        (Double(x), Double(y)) => Int(if (x <= y) {1} else {0})
+        _ => fail!("type mismatch, le expects Int / Double")
       }
     }
     FNeg(x) => {

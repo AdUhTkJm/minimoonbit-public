@@ -33,7 +33,11 @@ fn KnfEnv::new_named_temp(self : KnfEnv, name : Name) -> Name {
 
 fn KnfEnv::get(self: KnfEnv, name: String) -> Name {
     return match self.names[name] {
-        None => self.new_named_temp(Name::name_only(name));
+        None => {
+            let w = self.new_named_temp(Name::name_only(name));
+            self.names = self.names.add(name, w);
+            w
+        }
         Some(t) => t
     }
 }
@@ -116,10 +120,13 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             LetRec(FuncDef::{ name: self.get(f_name), ty: ty, args: args.map(fn (z) { (self.get(z.0), z.1) }), body: self.to_knf(syn)}, self.to_knf(w));
         }
         LetTuple(arr, syn, w) => {
-            let x = arr.map(fn (z) { (self.new_temp(), z.1) });
             let cont = self.to_knf(w);
             let var = self.new_temp();
-            Let((var, @typing.lookup(syn)), self.to_knf(syn), LetTuple(x, var, cont));
+            for z in arr {
+                self.add(z.0, z.1);
+            }
+            Let((var, @typing.lookup(syn)), self.to_knf(syn),
+            LetTuple(arr.map(fn (z) { (self.get(z.0), z.1) }), var, cont))
         }
         App(f, args) => {
             let t_args = args.map(fn (z) { ignore(z); self.new_temp() });

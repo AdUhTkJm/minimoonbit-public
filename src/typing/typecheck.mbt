@@ -221,16 +221,6 @@ pub fn typed(ast: @types.Syntax) -> @types.Syntax {
 }
 
 pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {
-    eglob["print_char"] = Fun([Int], Unit);
-    eglob["read_int"] = Fun([], Int);
-    eglob["read_char"] = Fun([], Int);
-    eglob["floor"] = Fun([Double], Double);
-    eglob["abs_float"] = Fun([Double], Double);
-    eglob["sqrt"] = Fun([Double], Double);
-    eglob["sin"] = Fun([Double], Double);
-    eglob["cos"] = Fun([Double], Double);
-    eglob["atan"] = Fun([Double], Double);
-
     unify(infer(ast, @immut/hashmap.T::new(), ~global = true), Unit);
     return typed(ast);
 }
