@@ -15,7 +15,6 @@ fn real(ty: @types.Type) -> @types.Type {
 }
 
 fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
-    println("unify: attempts to unify \{t1} and \{t2}\n\n");
     if (real(t1) == real(t2)) {
         return;
     }
@@ -74,7 +73,6 @@ pub fn lookup(ast: @types.Syntax) -> @types.Type {
 }
 
 pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~global: Bool = false) -> @types.Type {
-    println("infer: \{ast}\n\n")
     let z: @types.Type = match ast {
         Int(_) => Int
         Double(_) => Double
@@ -188,7 +186,6 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
         }
     }
     typing[ast] = z;
-    println("infer: \{ast} is of type \{z}\n\n");
     z;
 }
 

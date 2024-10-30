@@ -328,7 +328,7 @@ fn stmt() -> @types.Syntax {
         tin.expect(LBrace);
         let fbody = stmt();
         tin.expect(RBrace);
-        ignore(tin.check(Semicolon));
+        tin.expect(Semicolon);
 
         return LetRec(@types.Fundef::{
             name: (f_name, Fun(fargs.map(fn (z) {z.1;}), ret_ty)),
@@ -389,7 +389,7 @@ fn toplevel_fn() -> @types.Syntax {
     tin.expect(LBrace);
     let fbody = stmt();
     tin.expect(RBrace);
-    ignore(tin.check(Semicolon));
+    tin.expect(Semicolon);
 
     return LetRec(@types.Fundef::{
         name: (f_name, Fun(fargs.map(fn (z) {z.1;}), ret_ty)),
@@ -404,12 +404,7 @@ fn toplevel_let() -> @types.Syntax {
     }
 
     tin.expect(Colon);
-    let node_ty = tin.consume();
-    let ty: @types.Type = match node_ty {
-        Int => Int
-        Double => Double
-        _ => @util.die("Expected type in 'let' statement")
-    }
+    let ty = get_type();
 
     tin.expect(Assign);
     let node = expr();

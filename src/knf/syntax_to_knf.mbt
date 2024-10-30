@@ -125,8 +125,23 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             let t_args = args.map(fn (z) { ignore(z); self.new_temp() });
             let t_f = self.new_temp();
             Let((t_f, @typing.lookup(f)), self.to_knf(f),
-                args.foldi(~init = Apply(t_f, t_args),
-                fn (i, knf, arg) { Let((t_args[i], @typing.lookup(arg)), self.to_knf(arg), knf)}));
+                args.foldi(~init = match f {
+                    Var("print_int" as str) |
+                    Var("print_endline" as str) |
+                    Var("print_char" as str) |
+                    Var("read_int" as str) |
+                    Var("read_char" as str) |
+                    Var("truncate" as str) |
+                    Var("int_of_float" as str) |
+                    Var("floor" as str) |
+                    Var("abs_float" as str) |
+                    Var("sqrt" as str) |
+                    Var("sin" as str) |
+                    Var("cos" as str) |
+                    Var("atan" as str) |
+                    Var("float_of_int" as str) => ExternalFunctionApplication("minimbt_\{str}", t_args)
+                    _ => Apply(t_f, t_args)
+                }, fn (i, knf, arg) { Let((t_args[i], @typing.lookup(arg)), self.to_knf(arg), knf)}));
         }
         If(cond, body, otherwise) => {
             match cond {

@@ -30,6 +30,11 @@ fn captured(e: @knf.Knf) -> Set {
             typing[b] = Double;
             @immut/hashset.T::from_array([a, b])
         }
+        Eq(a, b) | Le(a, b) => {
+            @immut/hashset.T::from_array([a, b])
+        }
+
+
         Apply(f, args) => @immut/hashset.T::from_array([f, ..args])
 
         Let((x, t), val, w) => {
@@ -52,6 +57,7 @@ fn captured(e: @knf.Knf) -> Set {
             }
             z;
         }
+        
         z => @util.die("Undefined \{z}")
     }
 }
