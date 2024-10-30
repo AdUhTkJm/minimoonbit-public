@@ -1,1 +1,6 @@
-{}
+{
+  "import": [
+    "yj-qin/regexp",
+    "moonbitlang/minimbt/util"
+  ]
+}
