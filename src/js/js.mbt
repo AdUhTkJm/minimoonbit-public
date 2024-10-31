@@ -1,4 +1,3 @@
-let vars: Array[String] = [];
 fn eval(x: @types.Syntax) -> String {
     match x {
         Int(x) => x.to_string()
@@ -54,5 +53,5 @@ fn eval(x: @types.Syntax) -> String {
 }
 
 pub fn emit(program: @types.Syntax) -> String {
-    return "(function() {\{eval(program)}})()";
+    return "export default function() { (function() {\{eval(program)}})() }";
 }
