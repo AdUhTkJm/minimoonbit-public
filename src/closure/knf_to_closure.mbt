@@ -118,7 +118,11 @@ pub fn convert(knf: @knf.Knf) -> Expr {
                 captured: cap.map(fn (z) { (z, lowtype(@knf.typing[z].unwrap())) }),
                 body: convert(syn)
             });
-            CopyValue(f_name, convert(w));
+            if (cap.length() == 0) {
+                convert(w)
+            } else {
+                CopyValue(f_name, convert(w));
+            }
         }
         
     }

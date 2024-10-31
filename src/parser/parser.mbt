@@ -5,7 +5,6 @@ struct Tstream {
 
 fn Tstream::expect(self: Tstream, t: @lex.Token) -> Unit {
     if (self.tokens[self.x].is(t).not()) {
-        println("Surrounding tokens: \{tin.surround()}");
         @util.die("Unexpected token \{self.tokens[self.x]} showed up, when \{t} is expected")
     }
     self.x += 1;
@@ -385,7 +384,6 @@ fn toplevel_fn() -> @types.Syntax {
         tin.expect(Arrow);
         ret_ty = get_type();
     }
-
     tin.expect(LBrace);
     let fbody = stmt();
     tin.expect(RBrace);

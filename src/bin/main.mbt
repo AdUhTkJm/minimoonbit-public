@@ -95,7 +95,7 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
         }
         Typecheck => {
             self.typechecked = Some(@typing.typecheck(self.ast.unwrap()));
-            }
+        }
         Knf => {
             let knf = self.knf_env.to_knf(self.typechecked.unwrap());
             self.knf = Some(knf)
@@ -109,8 +109,12 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             self.closure_ir = Some(closure_ir)
         }
         Asm => {
-            let real_asm = @riscv.emit(@util.die("TODO: Asm phase"))
-            self.asm = Some(real_asm)
+            if (js.val) {
+                
+            } else {
+                let real_asm = @riscv.emit(self.closure_ir.unwrap())
+                self.asm = Some(real_asm)
+            }
         }
         Finished => ()
     }
@@ -137,10 +141,16 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
             KnfOpt => self.knf.unwrap().to_string()
             Closure => self.opt_knf.unwrap().to_string()
             Asm => self.closure_ir.unwrap().to_string()
-            Finished => @riscv.print_functions(self.asm.unwrap())
+            Finished => if (js.val) {
+                ""
+            } else {
+                @riscv.print_functions(self.asm.unwrap())
+            }
         }
     }
 }
+
+let js: Ref[Bool] = Ref::new(false);
 
 fn main {
     let argv = @env.get_args()
@@ -197,6 +207,12 @@ fn main {
                 "",
                 @ArgParser.Set(closure_interpreter),
                 "Run with closure interpreter",
+            ),
+            (
+                "--js",
+                "",
+                @ArgParser.Set(js),
+                "Run with JS backend",
             ),
             (
                 "--out-file",
