@@ -22,7 +22,7 @@ fn eval(x: @types.Syntax) -> String {
         }
 
         If(cond, body, otherwise) =>
-            "(function(){  if (\{eval(cond)}) { return (\{eval(body)}); } else { return (\{eval(otherwise)}); })()"
+            "(function(){  if (\{eval(cond)}) { return (\{eval(body)}) } else { return (\{eval(otherwise)}) } })()"
 
         Eq(a, b) => "(\{eval(a)} == \{eval(b)})"
         LE(a, b) => "(\{eval(a)} <= \{eval(b)})"
@@ -32,7 +32,7 @@ fn eval(x: @types.Syntax) -> String {
         
         LetRec({ name: (f_name, _), args: args, body: syn }, w) => {
             let arg_names = args.map(fn (x) { x.0 }).join(", ");
-            "(\{f_name} = function(\{arg_names}) { return \{eval(syn)} }),\n\{eval(w)}"
+            "(\{f_name} = function(\{arg_names}) { return (\{eval(syn)}) }),\n\{eval(w)}"
         }
 
         LetTuple(arr, val, w) =>
@@ -42,11 +42,11 @@ fn eval(x: @types.Syntax) -> String {
 
 
         App(name, args)=> {
-            let list = args.map(eval).join(",");
+            let list = args.map(eval).join(", ");
             "\{eval(name)}(\{list})"
         }
         ApplyExtern(name, args)=> {
-            let list = args.map(eval).join(",");
+            let list = args.map(eval).join(", ");
             "\{name}(\{list})"
         }
 

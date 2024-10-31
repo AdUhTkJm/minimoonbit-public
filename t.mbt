@@ -1,12 +1,15 @@
-fn make_adder(x: Int) -> (Int) -> Int {
-  fn adder(y: Int) -> Int {
-    x + y
-  };
-  adder
+fn ack(x : Int, y : Int) -> Int {
+  if x <= 0 {
+    y + 1
+  } else {
+    if y <= 0 {
+      ack(x - 1, 1)
+    } else {
+      ack(x - 1, ack(x, y - 1))
+    }
+  }
 };
 
 fn main {
-  let add2 = make_adder(2);
-  let add3 = make_adder(3);
-  print_int(add2(10) + add3(20))
+  print_int(ack(3,8))
 };
