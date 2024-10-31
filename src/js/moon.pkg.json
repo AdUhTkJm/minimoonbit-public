@@ -6,7 +6,9 @@
       },
       "moonbitlang/minimbt/util",
       "moonbitlang/minimbt/typing",
-      "moonbitlang/minimbt/closure"
+      "moonbitlang/minimbt/closure",
+      "moonbitlang/minimbt/knf",
+      "moonbitlang/minimbt/parser"
     ],
     "test-import": [
       "moonbitlang/minimbt/parser",

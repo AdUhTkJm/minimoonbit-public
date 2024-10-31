@@ -375,7 +375,7 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
                 // We have to make it a closure in order to call it
                 let r = Some(b);
                 if (is_fake(r) && t.regs.contains(real(r)).not()) {
-                    result.push(Li(a, real(r).name.unwrap()));
+                    result.push(La(a, real(r).name.unwrap()));
                     result.push(Sd(a, { base: S11, offset: 0 }));
                     result.push(Mv(a, S11));
                 } else if weak_eq(a, b).not() {

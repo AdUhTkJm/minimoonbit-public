@@ -12,7 +12,7 @@ pub fn Name::to_string(self : Name) -> String {
   match (name, slot) {
     (None, _) => "_\{slot}"
     (Some(name), 0) => name
-    (Some(name), _) => "\{name}.\{slot}"
+    (Some(name), _) => "\{name}_\{slot}"
   }
 }
 
