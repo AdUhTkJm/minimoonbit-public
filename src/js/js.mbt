@@ -8,7 +8,7 @@ fn eval(x: @types.Syntax) -> String {
         Not(x) => "!(\{eval(x)})"
         Neg(x, ..) => "-(\{eval(x)})"
         Array(len, elem) =>
-            "(function() { var __t = Array(\{eval(len)}), __e = (\{eval(elem)}); for (var __i = 0; __i < \{len}; __i++) __t[__i] = __e; return __t; })()"
+            "(function() { var __t = Array(\{eval(len)}), __e = (\{eval(elem)}); for (var __i = 0; __i < \{eval(len)}; __i++) __t[__i] = __e; return __t; })()"
         Tuple(arr) => "[" + arr.map(eval).join(", ") + "]"
         Get(x, i) => "(\{eval(x)})[\{eval(i)}]"
         Put(x, i, v) => "((\{eval(x)})[\{eval(i)}] = (\{eval(v)}), null)"
