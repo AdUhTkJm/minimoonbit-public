@@ -35,9 +35,9 @@ fn eval(x: @types.Syntax) -> String {
         }
 
         LetTuple(arr, val, w) =>
-            arr.foldi(~init = "", fn (i, total, x) { 
-                total + "; \{x} = \{val}[\{i}]"    
-            }) + "\{eval(w)}";
+            arr.foldi(~init = "(function() {", fn (i, total, x) { 
+                total + "var \{x.0} = \{eval(val)}[\{i}];"
+            }) + "return \{eval(w)} })()";
 
 
         App(name, args)=> {
