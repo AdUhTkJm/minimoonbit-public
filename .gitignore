@@ -19,5 +19,6 @@ rv64_failed_tests/
 
 *.zip
 *.txt
+t.*
 
 __pycache__

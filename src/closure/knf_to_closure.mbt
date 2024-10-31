@@ -121,7 +121,8 @@ pub fn convert(knf: @knf.Knf) -> Expr {
             if (cap.length() == 0) {
                 convert(w)
             } else {
-                CopyValue(f_name, convert(w));
+                //CopyValue(f_name, convert(w));
+                convert(w);
             }
         }
         

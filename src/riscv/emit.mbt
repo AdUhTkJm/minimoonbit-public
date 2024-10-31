@@ -32,6 +32,7 @@ fn t_clear() -> Unit {
     t.first_used = Map::new();
     t.last_used = Map::new();
     t.all_used = @immut/sorted_set.T::new();
+    t.regs = Map::new();
 }
 
 
@@ -297,24 +298,27 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             // We now need to compile every function into a closure;
             // Optimization on the way
             if (args.length() != 0) {
+                let t = fake();
+
                 // void* a0 = malloc(size);
                 asm.push(Li(A0, offset.to_string()));
                 asm.push(Call("minimbt_malloc"));
+                asm.push(Mv(t, A0));
                 
                 // Copy environment to space at a0
                 for x in args {
                     asm.push(Sd(Fake(x.0), { base: A0, offset: offset }));
                 }
 
-                // void* a2 = malloc(16);
+                // void* a0 = malloc(16);
                 // sizeof(Closure) == 16
-                asm.push(Li(A2, "16"));
+                asm.push(Li(A0, "16"));
                 asm.push(Call("minimbt_malloc"));
 
                 // Save Closure in memory
-                asm.push(Sd(Fake(a), { base: A2, offset: 0 }));
-                asm.push(Sd(A0, { base: A2, offset: 8 }));
-                asm.push(Mv(Fake(a), A2));
+                asm.push(Sd(Fake(a), { base: A0, offset: 0 }));
+                asm.push(Sd(t, { base: A0, offset: 8 }));
+                asm.push(Mv(Fake(a), A0));
             }
 
             emit_expr(w);
@@ -365,20 +369,69 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     while (i < asm.length()) {
         match asm[i] {
-            Addi(a, b, 0) => {
-                if (weak_eq(a, b).not()) {
-                    result.push(asm[i]);
-                }
-            }
             Mv(a, b) => { 
-                // This must be a top-level function
-                // We have to make it a closure in order to call it
                 let r = Some(b);
+                // If reg() hasn't allocated, b must have never appeared as rd
+                // Hence b is a function
                 if (is_fake(r) && t.regs.contains(real(r)).not()) {
-                    result.push(La(a, real(r).name.unwrap()));
-                    result.push(Sd(a, { base: S11, offset: 0 }));
-                    result.push(Mv(a, S11));
-                } else if weak_eq(a, b).not() {
+                    // Note that this can very much be "mv a0, ..."
+                    // And we use a0 intensively, so have to take care
+                    let is_a0 = weak_eq(a, A0);
+                    let target = if (is_a0) { fake() } else { a };
+
+                    let args: Array[(@typing.Name, Int)] = [];
+                    let mut offset = 0;
+                    let f_name = real(r);
+                    let f = find_func(f_name).unwrap();
+                    for z in f.captured {
+                        args.push((z.0, offset));
+                        offset += 8;
+                    }
+
+                    // Closure is compiled as:
+
+                    // struct Closure { void* (*func)(void*); void* env;  };
+                    // This has size 16
+
+                    // We save a Closure* in register 'f_name',
+                    // which currently holds a function pointer
+                    if (args.length() != 0) {
+                        let t = fake();
+
+                        // void* a0 = malloc(env_size);
+                        result.push(Li(A0, offset.to_string()));
+                        result.push(Call("minimbt_malloc"));
+                        result.push(Mv(t, A0));
+                        
+                        // Copy environment to space at a0
+                        ignore(args.mapi(fn (i, x) {
+                            result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
+                        }));
+
+                        // void* a0 = malloc(16);
+                        result.push(Li(A0, "16"));
+                        result.push(Call("minimbt_malloc"));
+
+                        // Save Closure in memory
+                        result.push(La(target, f_name.name.unwrap()));
+                        result.push(Sd(target, { base: A0, offset: 0 }));
+                        result.push(Sd(t, { base: A0, offset: 8 }));
+                        if (is_a0.not()) {
+                            result.push(Mv(target, A0));
+                        }
+                    } else {
+                        // void* a0 = malloc(16);
+                        result.push(Li(A0, "16"));
+                        result.push(Call("minimbt_malloc"));
+
+                        // Save Closure in memory, but ignore env part
+                        result.push(La(target, real(r).name.unwrap()));
+                        result.push(Sd(target, { base: A0, offset: 0 }));
+                        if (is_a0.not()) {
+                            result.push(Mv(target, A0));
+                        }
+                    }
+                } else {
                     result.push(asm[i]);
                 }
             }
@@ -387,6 +440,30 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         i += 1;
     }
     return result;
+}
+
+pub fn tidy_2(body: Array[RvAsm]) -> Unit {
+    let mut i = 0;
+    let asm = body.copy();
+    body.clear();
+    while (i < asm.length()) {
+        match asm[i] {
+            Addi(a, b, 0) => {
+                // Remove "addi a, a, 0"
+                if (weak_eq(a, b).not()) {
+                    body.push(asm[i]);
+                }
+            }
+            Mv(a, b) => {
+                // Remove "mv a, a"
+                if (weak_eq(a, b).not()) {
+                    body.push(asm[i]);
+                }
+            }
+            _ => body.push(asm[i])
+        }
+        i += 1;
+    }
 }
 
 fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
@@ -406,11 +483,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         ignore(fun.captured.mapi(fn (i, x) {
             load_arg.push(Ld(Fake(x.0), { base: env, offset: i * 8 }));
         }));
-    } else {
-        // Get a heap area that we can freely tamper with
-        load_arg.push(Li(A0, "1000"));
-        load_arg.push(Call("minimbt_malloc"));
-        load_arg.push(Mv(S11, A0));
     }
 
 
@@ -424,8 +496,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Preserve registers
     let pre: Array[RvAsm] = [];
     let post: Array[RvAsm] = [];
-    for r in t.all_used {
-        if (reg_callee_saved_list.contains(r).not()) {
+    for r in [Ra, ..t.all_used] {
+        if (reg_callee_saved_list.contains(r).not() && weak_eq(r, Ra).not()) {
             continue;
         }
         pre.push(Sd(r, { base: Sp, offset: offset }));
@@ -436,12 +508,12 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
     let body = [
-        Addi(Sp, Sp, offset),
+        Addi(Sp, Sp, - offset),
         ..pre,
         ..pseudobody,
-        ..post,
         Mv(A0, ret),
-        Addi(Sp, Sp, - offset),
+        ..post,
+        Addi(Sp, Sp, offset),
         Ret
     ]
 
@@ -454,7 +526,11 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.funcs = program.fundefs;
-    return t.funcs.map(emit_fn);
+    let arr = t.funcs.map(emit_fn);
+    t_clear();
+    ignore(arr.map(fn (x) { regalloc(x.body) }));
+    ignore(arr.map(fn (x) { tidy_2(x.body) } ));
+    return arr;
 }
 
 pub struct AssemblyFunction {
