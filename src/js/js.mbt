@@ -1,4 +1,4 @@
-
+let vars: Array[String] = [];
 fn eval(x: @types.Syntax) -> String {
     match x {
         Int(x) => x.to_string()
@@ -9,7 +9,7 @@ fn eval(x: @types.Syntax) -> String {
         Not(x) => "!(\{eval(x)})"
         Neg(x, ..) => "-(\{eval(x)})"
         Array(len, elem) =>
-            "(function() { var t = Array(\{eval(len)}), e = (\{eval(elem)}); for (int i = 0; i < \{len}; i++) t[i] = e; return t; })()"
+            "(function() { var __t = Array(\{eval(len)}), __e = (\{eval(elem)}); for (var __i = 0; __i < \{len}; __i++) __t[__i] = __e; return __t; })()"
         Tuple(arr) => "[" + arr.map(eval).join(", ") + "]"
         Get(x, i) => "(\{eval(x)})[\{eval(i)}]"
         Put(x, i, v) => "((\{eval(x)})[\{eval(i)}] = (\{eval(v)}), null)"
@@ -22,17 +22,17 @@ fn eval(x: @types.Syntax) -> String {
         }
 
         If(cond, body, otherwise) =>
-            "(function(){  if (\{eval(cond)}) { return (\{eval(body)}) } else { return (\{eval(otherwise)}) } })()"
+            "(function() { if (\{eval(cond)}) return (\{eval(body)}); else return (\{eval(otherwise)}) })()"
 
         Eq(a, b) => "(\{eval(a)} == \{eval(b)})"
         LE(a, b) => "(\{eval(a)} <= \{eval(b)})"
 
         Let((a, _), val, w) =>
-            "(\{a} = (\{eval(val)}), \n\{eval(w)})"
+            "(function() { var \{a} = (\{eval(val)}); \nreturn \{eval(w)} })()"
         
         LetRec({ name: (f_name, _), args: args, body: syn }, w) => {
             let arg_names = args.map(fn (x) { x.0 }).join(", ");
-            "(\{f_name} = function(\{arg_names}) { return (\{eval(syn)}) }),\n\{eval(w)}"
+            "(function() { var \{f_name} = function(\{arg_names}) { return (\{eval(syn)}) }; return \{eval(w)} })()"
         }
 
         LetTuple(arr, val, w) =>
@@ -54,5 +54,5 @@ fn eval(x: @types.Syntax) -> String {
 }
 
 pub fn emit(program: @types.Syntax) -> String {
-    return eval(program);
+    return "(function() {\{eval(program)}})()";
 }

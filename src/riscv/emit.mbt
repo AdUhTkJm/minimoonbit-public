@@ -424,7 +424,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Preserve registers
     let pre: Array[RvAsm] = [];
     let post: Array[RvAsm] = [];
-    println(t.all_used);
     for r in t.all_used {
         if (reg_callee_saved_list.contains(r).not()) {
             continue;
@@ -447,7 +446,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     ]
 
     AssemblyFunction :: {
-        name: fun.name._,
+        name: if (fun.name._ == "main") { "minimbt_main" } else { fun.name._ },
         export: true,
         body: tidy(body)
     }
