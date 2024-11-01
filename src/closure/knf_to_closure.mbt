@@ -6,7 +6,7 @@ fn union(a: Set, b: Set) -> Set {
     for z in b {
         l = l.add(z);
     }
-    a;
+    l;
 }
 fn captured(e: @knf.Knf) -> Set {
     match e {
@@ -38,12 +38,14 @@ fn captured(e: @knf.Knf) -> Set {
         Let((x, _), val, w) => {
             union(captured(val), captured(w)).remove(x)
         }
-        LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
+        // LetRec is special; we don't want to process more,
+        // since this is already a self-contained function
+        LetRec({ name: f_name, ty: _, args: args, body: syn }, _) => {
             let mut z = captured(syn);
             for y in args {
                 z = z.remove(y.0);
             }
-            union(z, captured(w)).remove(f_name);
+            z.remove(f_name);
         }
         LetTuple(arr, n, w) => {
             let mut z = captured(w).add(n);
@@ -103,9 +105,8 @@ pub fn convert(knf: @knf.Knf) -> Expr {
 
         LetTuple(arr, val, w) => LetTuple(arr.map(fn (z) { (z.0, lowtype(z.1)) }), val, convert(w))
 
-        Apply(f, args) => {
-            Call(f, args)
-        }
+        Apply(f, args) => Call(f, args)
+        
         LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
             let cap = Array::from_iter(captured(knf).iter());
             let lowty = lowtype(ty);
@@ -116,14 +117,9 @@ pub fn convert(knf: @knf.Knf) -> Expr {
                 ty: lowty,
                 args: args.map(fn (z) { (z.0, lowtype(z.1)) }),
                 captured: cap.map(fn (z) { (z, lowtype(@knf.typing[z].unwrap())) }),
-                body: convert(syn)
+                body: convert(syn),
             });
-            if (cap.length() == 0) {
-                convert(w)
-            } else {
-                //CopyValue(f_name, convert(w));
-                convert(w);
-            }
+            convert(w)
         }
         
     }

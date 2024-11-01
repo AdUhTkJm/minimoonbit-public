@@ -57,23 +57,23 @@ pub enum RvAsm {
     Remw(Reg, Reg, Reg)
     Remu(Reg, Reg, Reg)
     // rvf
-    FaddD(FReg, FReg, FReg)
-    FsubD(FReg, FReg, FReg)
-    FmulD(FReg, FReg, FReg)
-    FdivD(FReg, FReg, FReg)
-    Fld(FReg, MemAccess[Reg, Int])
-    Fsd(FReg, MemAccess[Reg, Int])
-    FeqD(Reg, FReg, FReg)
-    FleD(Reg, FReg, FReg)
-    FmvDX(FReg, Reg)
+    FaddD(Reg, Reg, Reg)
+    FsubD(Reg, Reg, Reg)
+    FmulD(Reg, Reg, Reg)
+    FdivD(Reg, Reg, Reg)
+    Fld(Reg, MemAccess[Reg, Int])
+    Fsd(Reg, MemAccess[Reg, Int])
+    FeqD(Reg, Reg, Reg)
+    FleD(Reg, Reg, Reg)
+    FmvDX(Reg, Reg)
     // pseudo instructions
     Nop
     La(Reg, Label)
     Li(Reg, String)
     Neg(Reg, Reg)
-    FnegD(FReg, FReg)
+    FnegD(Reg, Reg)
     Mv(Reg, Reg)
-    FmvD(FReg, FReg)
+    FmvD(Reg, Reg)
     J(Label)
     Jalr(Reg)
     Jr(Reg)
@@ -85,81 +85,170 @@ pub enum RvAsm {
     Comment(String)
 }
 
-fn write3[TReg1 : Show, TReg2 : Show, TReg3 : Show](
-    logger : Logger,
-    op : String,
-    rd : TReg1,
-    rs1 : TReg2,
-    rs2 : TReg3
-) -> Unit {
-    logger.write_string(op)
-    logger.write_string(" ")
-    rd.output(logger)
-    logger.write_string(", ")
-    rs1.output(logger)
-    logger.write_string(", ")
-    rs2.output(logger)
+struct Where {
+    mut x: Int
 }
 
-fn write2imm[TReg : Show](
+let where: Where = { x: 0 };
+
+fn which() -> Reg {
+    match where.x {
+        0 => S10
+        1 => S11
+        2 => T6
+        x => @util.die("bad which(): \{x}")
+    }
+}
+
+fn offset(r: Reg) -> Int {
+    match r {
+        Spilt(x) => x
+        Fake(x) => match t.regs[x] {
+            Some(Spilt(x)) => x
+            _ => -1
+        }
+        _ => -1
+    }
+}
+
+fn spill(logger: Logger, r: Reg) -> Reg {
+    let x = offset(r);
+    if (x != -1) {
+        let t = which();
+        where.x += 1;
+        write2mem(logger, "ld", t, { base: Sp, offset: x });
+        logger.write_string("\n    ");
+        t
+    } else {
+        r
+    }
+}
+
+fn unspill(logger: Logger, r: Reg) -> Unit {
+    let x = offset(r);
+    if (x != -1) {
+        where.x -= 1;
+        let t = which();
+        write2mem(logger, "sd", t, { base: Sp, offset: x });
+        logger.write_string("\n    ");
+    }
+}
+
+fn write3(
     logger : Logger,
     op : String,
-    rd : TReg,
-    rs1 : TReg,
+    rd : Reg,
+    rs1 : Reg,
+    rs2 : Reg
+) -> Unit {
+    let t1 = spill(logger, rd);
+    let t2 = spill(logger, rs1);
+    let t3 = spill(logger, rs2);
+    logger.write_string(op)
+    logger.write_string(" ")
+    Show::output(t1, logger)
+    logger.write_string(", ")
+    Show::output(t2, logger)
+    logger.write_string(", ")
+    Show::output(t3, logger)
+    if (where.x != 0) {
+        logger.write_string("\n    ")
+    }
+    unspill(logger, rs2);
+    unspill(logger, rs1);
+    unspill(logger, rd);
+}
+
+fn write2imm(
+    logger : Logger,
+    op : String,
+    rd : Reg,
+    rs1 : Reg,
     imm : Int
 ) -> Unit {
+    let t1 = spill(logger, rd);
+    let t2 = spill(logger, rs1);
     logger.write_string(op)
     logger.write_string(" ")
-    rd.output(logger)
+    Show::output(t1, logger)
     logger.write_string(", ")
-    rs1.output(logger)
+    Show::output(t2, logger)
     logger.write_string(", ")
     logger.write_string(imm.to_string())
+    
+    if (where.x != 0) {
+        logger.write_string("\n    ")
+    }
+    unspill(logger, rs1);
+    unspill(logger, rd);
 }
 
-fn write2label[TReg : Show](
+fn write2label(
     logger : Logger,
     op : String,
-    rs1 : TReg,
-    rs2 : TReg,
+    rs1 : Reg,
+    rs2 : Reg,
     label : Label
 ) -> Unit {
+    let t1 = spill(logger, rs1);
+    let t2 = spill(logger, rs2);
     logger.write_string(op)
     logger.write_string(" ")
-    rs1.output(logger)
+    Show::output(t1, logger)
     logger.write_string(", ")
-    rs2.output(logger)
+    Show::output(t2, logger)
     logger.write_string(", ")
     logger.write_string(label._)
+    
+    if (where.x != 0) {
+        logger.write_string("\n    ")
+    }
+    unspill(logger, rs2);
+    unspill(logger, rs1);
 }
 
-fn write2mem[TReg1 : Show, TReg2 : Show](
+fn write2mem(
     logger : Logger,
     op : String,
-    rd : TReg1,
-    mem : MemAccess[TReg2, Int]
+    rd : Reg,
+    mem : MemAccess[Reg, Int]
 ) -> Unit {
+    
+    let t1 = spill(logger, rd);
+    let t2 = spill(logger, mem.base);
     logger.write_string(op)
     logger.write_string(" ")
-    rd.output(logger)
+    Show::output(t1, logger)
     logger.write_string(", ")
     logger.write_string(mem.offset.to_string())
     logger.write_string("(")
-    mem.base.output(logger)
+    Show::output(t2, logger)
     logger.write_string(")")
+    if (where.x != 0) {
+        logger.write_string("\n    ")
+    }
+    unspill(logger, mem.base);
+    unspill(logger, rd);
 }
 
-fn write2[TReg1 : Show, TReg2 : Show](
+fn write2(
     logger : Logger,
     op : String,
-    rd : TReg1,
-    rs1 : TReg2
+    rd : Reg,
+    rs1 : Reg
 ) -> Unit {
+    let t1 = spill(logger, rd);
+    let t2 = spill(logger, rs1);
     logger.write_string(op)
     logger.write_string(" ")
-    rd.output(logger)
+    Show::output(t1, logger)
     logger.write_string(", ")
-    rs1.output(logger)
+    Show::output(t2, logger)
+    if (where.x != 0) {
+        logger.write_string("\n    ")
+    }
+    unspill(logger, rs1);
+    unspill(logger, rd);
 }
 
 impl Show for RvAsm with output(self, logger) {
@@ -229,16 +318,26 @@ impl Show for RvAsm with output(self, logger) {
         FmvDX(rd, rs1) => write2(logger, "fmv.d.x", rd, rs1)
         Nop => logger.write_string("nop")
         La(rd, label) => {
+            let t1 = spill(logger, rd);
             logger.write_string("la ")
-            Show::output(rd, logger)
+            Show::output(t1, logger)
             logger.write_string(", ")
             logger.write_string(label._)
+            if (where.x != 0) {
+                logger.write_string("\n    ")
+            }
+            unspill(logger, rd);
         }
         Li(rd, imm) => {
+            let t1 = spill(logger, rd);
             logger.write_string("li ")
-            Show::output(rd, logger)
+            Show::output(t1, logger)
             logger.write_string(", ")
             logger.write_string(imm)
+            if (where.x != 0) {
+                logger.write_string("\n    ")
+            }
+            unspill(logger, rd);
         }
         Neg(rd, rs1) => write2(logger, "neg", rd, rs1)
         FnegD(rd, rs1) => write2(logger, "fneg.d", rd, rs1)
@@ -249,12 +348,22 @@ impl Show for RvAsm with output(self, logger) {
             logger.write_string(label._)
         }
         Jalr(rs1) => {
+            let t1 = spill(logger, rs1);
             logger.write_string("jalr ")
-            Show::output(rs1, logger)
+            Show::output(t1, logger)
+            if (where.x != 0) {
+                logger.write_string("\n    ")
+            }
+            unspill(logger, rs1);
         }
         Jr(rs1) => {
+            let t1 = spill(logger, rs1);
             logger.write_string("jr ")
-            Show::output(rs1, logger)
+            Show::output(t1, logger)
+            if (where.x != 0) {
+                logger.write_string("\n    ")
+            }
+            unspill(logger, rs1);
         }
         Call(label) => {
             logger.write_string("call ")

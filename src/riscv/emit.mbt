@@ -1,14 +1,31 @@
 let asm: Array[RvAsm] = [];
 
 struct T {
+    // For spilling registers
     mut offset: Int
+
+    // The first instruction where a register is written to
     mut first_used: Map[@typing.Name, Int]
+
+    // The first instruction where a register is read from
     mut last_used: Map[@typing.Name, Int]
+
+    // The register for each name in IR
     mut regs: Map[@typing.Name, Reg]
+    
+    // Which name occupies the register?
     mut occupy: Map[Reg, @typing.Name]
+
+    // Temporary register count (for intermediate results)
     mut rcnt: Int
+
+    // Label count (for if-else, while etc.)
     mut labelcount: Int
+
+    // All functions
     mut funcs: Array[@closure.FuncDef]
+
+    // All register used in a function
     mut all_used: @immut/sorted_set.T[Reg]
 }
 
@@ -41,6 +58,7 @@ pub let t: T = T::new();
 
 fn reg(r: @typing.Name) -> Unit {
     for z in reg_allocatable_list {
+        // z is used after this instruction, so can't reuse
         if (t.occupy.contains(z) && t.last_used[t.occupy[z].unwrap()] > t.first_used[r]) {
             continue;
         }
@@ -57,6 +75,7 @@ fn reg(r: @typing.Name) -> Unit {
     t.offset += 8;
 }
 
+// Produce a fake register
 fn fake() -> Reg {
     let z = Fake(@typing.Name::slot_only(t.rcnt));
     t.rcnt += 1;
@@ -72,6 +91,7 @@ fn find_func(a: @typing.Name) -> Option[@closure.FuncDef] {
     None
 }
 
+// rd is the register written to, rs1 and rs2 are the ones read from
 struct RegFile {
     rd: Option[Reg]
     rs1: Option[Reg]
@@ -189,6 +209,8 @@ fn store_last(reg: Option[Reg], i: Int) -> Unit {
 fn regalloc(asm: Array[RvAsm]) -> Unit {
     let to_alloc: Array[@typing.Name] = [];
 
+    // Record all assigned registers
+    // Find the first and last times where they are accessed
     for i = 0; i < asm.length(); i = i + 1 {
         let used = reg_used(asm[i]);
         if (is_fake(used.rd) && visited(used.rd).not()) {
@@ -205,7 +227,7 @@ fn regalloc(asm: Array[RvAsm]) -> Unit {
     }
 }
 
-// Reg is where the result is stored
+// Return value: where the result of this expression is stored
 fn emit_expr(expr: @closure.Expr) -> Reg {
     match expr {
         Unit => A0
@@ -237,13 +259,55 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         Eq(a, b) => {
             let r = fake();
             asm.push(Xor(r, Fake(a), Fake(b)));
+            // set less than immediate, unsigned
+            // r = (r < 1u ? 1 : 0)
             asm.push(Sltiu(r, r, 1));
             r;
         }
         Le(a, b) => {
             let r = fake();
+            // set less than
+            // r = (b < a ? 1 : 0)
             asm.push(Slt(r, Fake(b), Fake(a)));
             asm.push(Xori(r, r, 1));
+            r;
+        }
+        Neg(a) => {
+            let r = fake();
+            asm.push(Sub(r, Zero, Fake(a)));
+            r;
+        }
+        BNeg(a) => {
+            let r = Fake(a);
+            asm.push(Xori(r, r, 1));
+            r;
+        }
+        ArrayGet(x, i) => {
+            let r = fake();
+            // r = *(x + (i << 2));
+            asm.push(Slti(r, Fake(i), 2));
+            asm.push(Add(r, r, Fake(x)));
+            asm.push(Lw(r, { base: r, offset: 0 }));
+            r;
+        }
+        ArrayPut(x, i, val) => {
+            let r = fake();
+            // *(x + (i << 2)) = val;
+            asm.push(Slti(r, Fake(i), 2));
+            asm.push(Add(r, r, Fake(x)));
+            asm.push(Sw(Fake(val), { base: r, offset: 0 }));
+            A0;
+        }
+        MakeTuple(arr) => {
+            let r = fake();
+            // Allocate an array for the tuple
+            asm.push(Li(A0, (8 * arr.length()).to_string()));
+            // Put everything into the array
+            ignore(arr.mapi(fn (i, x) {
+                asm.push(Sd(Fake(x), { base: A0, offset: i * 8 }));
+            }));
+            // Record the array address
+            asm.push(Mv(r, A0));
             r;
         }
         IfEq(a, b, body, otherwise) => {
@@ -252,6 +316,11 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             t.labelcount += 1;
 
             let r = fake();
+
+            // if (a != b) { goto else; }
+            // body; goto end;
+            // else { otherwise }
+            // end
             asm.push(Bne(Fake(a), Fake(b), l_else));
             asm.push(Mv(r, emit_expr(body)));
             asm.push(J(end));
@@ -279,48 +348,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Mv(Fake(a), rv));
             emit_expr(w);
         }
-        CopyValue(a, w) => {
-            let args: Array[(@typing.Name, Int)] = [];
-            let mut offset = 0;
-            let f = find_func(a).unwrap();
-            for z in f.captured {
-                args.push((z.0, offset));
-                offset += 8;
-            }
-
-            // Closure is compiled as:
-
-            // struct Closure { void* (*func)(void*); void* env;  };
-
-            // We save a Closure* in register 'a',
-            // which currently holds a function pointer
-
-            // We now need to compile every function into a closure;
-            // Optimization on the way
-            if (args.length() != 0) {
-                let t = fake();
-
-                // void* a0 = malloc(size);
-                asm.push(Li(A0, offset.to_string()));
-                asm.push(Call("minimbt_malloc"));
-                asm.push(Mv(t, A0));
-                
-                // Copy environment to space at a0
-                for x in args {
-                    asm.push(Sd(Fake(x.0), { base: A0, offset: offset }));
-                }
-
-                // void* a0 = malloc(16);
-                // sizeof(Closure) == 16
-                asm.push(Li(A0, "16"));
-                asm.push(Call("minimbt_malloc"));
-
-                // Save Closure in memory
-                asm.push(Sd(Fake(a), { base: A0, offset: 0 }));
-                asm.push(Sd(t, { base: A0, offset: 8 }));
-                asm.push(Mv(Fake(a), A0));
-            }
-
+        LetTuple(arr, val, w) => {
+            ignore(arr.mapi(fn (i, x) {
+                asm.push(Ld(Fake(x.0), { base: Fake(val), offset: i * 8 }));
+            }));
             emit_expr(w);
         }
         Var(x) => {
@@ -470,7 +501,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     asm.clear();
     t_clear();
     let ret = emit_expr(fun.body);
-    let mut offset = t.offset;
+    let mut offset = 0;
 
     // Load arguments
     let load_arg: Array[RvAsm] = [];
@@ -505,30 +536,40 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         offset += 8;
     }
 
-    offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
-
+    // Prologue and Epilogue is dealt with at output()
     let body = [
-        Addi(Sp, Sp, - offset),
         ..pre,
         ..pseudobody,
         Mv(A0, ret),
         ..post,
-        Addi(Sp, Sp, offset),
-        Ret
     ]
 
     AssemblyFunction :: {
         name: if (fun.name._ == "main") { "minimbt_main" } else { fun.name._ },
         export: true,
-        body: tidy(body)
+        body: tidy(body),
+        offset: offset
     }
 }
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.funcs = program.fundefs;
+
+    // Remove all captures of toplevel functions
+    ignore(t.funcs.map(fn (f) {
+        let copy = f.captured.copy();
+        f.captured.clear();
+
+        for x in copy {
+            if t.funcs.fold(~init = false, fn (found, z) { found || z.old_name == x.0 }).not() {
+                f.captured.push(x);
+            }
+        }
+    }));
+
     let arr = t.funcs.map(emit_fn);
     t_clear();
-    ignore(arr.map(fn (x) { regalloc(x.body) }));
+    ignore(arr.map(fn (x) { t.offset = x.offset; regalloc(x.body); x.offset = t.offset }));
     ignore(arr.map(fn (x) { tidy_2(x.body) } ));
     return arr;
 }
@@ -537,19 +578,27 @@ pub struct AssemblyFunction {
     name : String
     export : Bool
     body : Array[RvAsm]
+    mut offset: Int
 }
 
 pub fn AssemblyFunction::output(
     self : AssemblyFunction,
     logger : Logger
 ) -> Unit {
+    self.offset = (self.offset.to_double() / 16.0).ceil().to_int() * 16;
     let name = self.name
     if self.export {
         logger.write_string(".global \{name}\n")
     }
     logger.write_string("\{name}:\n")
+
+    Show::output(Addi(Sp, Sp, - self.offset), logger);
+    logger.write_string("\n")
     for asm in self.body {
         Show::output(asm, logger)
         logger.write_string("\n")
     }
+    Show::output(Addi(Sp, Sp, self.offset), logger);
+    logger.write_string("\n")
+    Show::output(Ret, logger);
 }

@@ -42,91 +42,6 @@ pub enum Reg {
     Fake(@typing.Name)
     Arg(Int)
     Spilt(Int)
-} derive(Eq, Compare, Hash)
-
-pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5] // T6 <- swap
-
-pub let reg_saved_list : Array[Reg] = [
-    // S0, <- fp
-    S1,
-    S2,
-    S3,
-    S4,
-    S5,
-    S6,
-    S7,
-    S8,
-    S9,
-    S10,
-]
-// S11, <- closure pointer
-
-pub let reg_arg_list : Array[Reg] = [A0, A1, A2, A3, A4, A5, A6, A7]
-
-pub let reg_caller_saved_list : Array[Reg] = reg_temp_list + reg_arg_list
-
-pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
-
-pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
-
-pub let reg_fp : Reg = Fp
-
-pub let reg_closure : Reg = S11
-
-pub let reg_ret : Reg = A0
-
-pub let reg_swap : Reg = T6
-
-pub fn Reg::to_string(self : Reg) -> String {
-    match self {
-        Zero => "zero"
-        Ra => "ra"
-        Sp => "sp"
-        Gp => "gp"
-        Tp => "tp"
-        T0 => "t0"
-        T1 => "t1"
-        T2 => "t2"
-        Fp => "s0"
-        S1 => "s1"
-        A0 => "a0"
-        A1 => "a1"
-        A2 => "a2"
-        A3 => "a3"
-        A4 => "a4"
-        A5 => "a5"
-        A6 => "a6"
-        A7 => "a7"
-        S2 => "s2"
-        S3 => "s3"
-        S4 => "s4"
-        S5 => "s5"
-        S6 => "s6"
-        S7 => "s7"
-        S8 => "s8"
-        S9 => "s9"
-        S10 => "s10"
-        S11 => "s11"
-        T3 => "t3"
-        T4 => "t4"
-        T5 => "t5"
-        T6 => "t6"
-        Fake(name) => if (t.regs.contains(name)) {
-            t.regs[name].unwrap().to_string()
-        } else {
-            name.to_string()
-        }
-        Arg(i) => reg_arg_list[i].to_string()
-        Spilt(i) => "spilt.\{i}"
-    }
-}
-
-impl Show for Reg with output(self, logger : Logger) {
-    logger.write_string(self.to_string())
-}
-
-/// RISC-V floating point register
-pub enum FReg {
     Ft0
     Ft1
     Ft2
@@ -162,50 +77,63 @@ pub enum FReg {
     FakeDouble(@typing.Name)
 } derive(Eq, Compare, Hash)
 
-pub let freg_temp_list : Array[FReg] = [
-    Ft0,
-    Ft1,
-    Ft2,
-    Ft3,
-    Ft4,
-    Ft5,
-    Ft6,
-    Ft7,
-    Ft8,
-    Ft9,
-    Ft10,
+pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5]
+
+pub let reg_saved_list : Array[Reg] = [
+    // S0, <- fp
+    S1,
+    S2,
+    S3,
+    S4,
+    S5,
+    S6,
+    S7,
+    S8,
+    S9,
 ]
 
-pub let freg_saved_list : Array[FReg] = [
-    Fs0,
-    Fs1,
-    Fs2,
-    Fs3,
-    Fs4,
-    Fs5,
-    Fs6,
-    Fs7,
-    Fs8,
-    Fs9,
-    Fs10,
-    Fs11,
-]
+pub let reg_arg_list : Array[Reg] = [A0, A1, A2, A3, A4, A5, A6, A7]
 
-pub let freg_arg_list : Array[FReg] = [Fa0, Fa1, Fa2, Fa3, Fa4, Fa5, Fa6, Fa7]
+pub let reg_caller_saved_list : Array[Reg] = reg_temp_list + reg_arg_list
 
-pub let freg_caller_saved_list : Array[FReg] = freg_temp_list + freg_arg_list
+pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
 
-pub let freg_callee_saved_list : Array[FReg] = freg_saved_list
+pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
 
-pub let freg_allocatable_list : Array[FReg] = freg_callee_saved_list +
-    freg_caller_saved_list
-
-pub let freg_ret : FReg = Fa0
-
-pub let freg_swap : FReg = Ft11
-
-pub fn FReg::to_string(self : FReg) -> String {
+pub fn Reg::to_string(self : Reg) -> String {
     match self {
+        Zero => "zero"
+        Ra => "ra"
+        Sp => "sp"
+        Gp => "gp"
+        Tp => "tp"
+        T0 => "t0"
+        T1 => "t1"
+        T2 => "t2"
+        Fp => "s0"
+        S1 => "s1"
+        A0 => "a0"
+        A1 => "a1"
+        A2 => "a2"
+        A3 => "a3"
+        A4 => "a4"
+        A5 => "a5"
+        A6 => "a6"
+        A7 => "a7"
+        S2 => "s2"
+        S3 => "s3"
+        S4 => "s4"
+        S5 => "s5"
+        S6 => "s6"
+        S7 => "s7"
+        S8 => "s8"
+        S9 => "s9"
+        S10 => "s10"
+        S11 => "s11"
+        T3 => "t3"
+        T4 => "t4"
+        T5 => "t5"
+        T6 => "t6"
         Ft0 => "ft0"
         Ft1 => "ft1"
         Ft2 => "ft2"
@@ -238,10 +166,55 @@ pub fn FReg::to_string(self : FReg) -> String {
         Ft9 => "ft9"
         Ft10 => "ft10"
         Ft11 => "ft11"
-        FakeDouble(name) => "f.\{name}"
+        FakeDouble(name) => "f.\{name}" // TODO
+        Fake(name) => if (t.regs.contains(name)) {
+            t.regs[name].unwrap().to_string()
+        } else {
+            name.to_string()
+        }
+        Arg(i) => reg_arg_list[i].to_string()
+        Spilt(i) => "spilt.\{i}"
     }
 }
 
-impl Show for FReg with output(self, logger : Logger) {
+impl Show for Reg with output(self, logger : Logger) {
     logger.write_string(self.to_string())
 }
+
+pub let freg_temp_list : Array[Reg] = [
+    Ft0,
+    Ft1,
+    Ft2,
+    Ft3,
+    Ft4,
+    Ft5,
+    Ft6,
+    Ft7,
+    Ft8,
+    Ft9,
+    Ft10,
+]
+
+pub let freg_saved_list : Array[Reg] = [
+    Fs0,
+    Fs1,
+    Fs2,
+    Fs3,
+    Fs4,
+    Fs5,
+    Fs6,
+    Fs7,
+    Fs8,
+    Fs9,
+    Fs10,
+    Fs11,
+]
+
+pub let freg_arg_list : Array[Reg] = [Fa0, Fa1, Fa2, Fa3, Fa4, Fa5, Fa6, Fa7]
+
+pub let freg_caller_saved_list : Array[Reg] = freg_temp_list + freg_arg_list
+
+pub let freg_callee_saved_list : Array[Reg] = freg_saved_list
+
+pub let freg_allocatable_list : Array[Reg] = freg_callee_saved_list +
+    freg_caller_saved_list
