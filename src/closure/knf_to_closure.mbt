@@ -1,6 +1,10 @@
 pub typealias LocalEnv = @immut/hashmap.T[Name, LowType]
 typealias Set = @immut/hashset.T[@knf.Name]
 
+// All global variables and functions
+pub let glob: Ref[Set] = Ref::new(Set::new());
+
+
 fn union(a: Set, b: Set) -> Set {
     let mut l = a;
     for z in b {
@@ -8,25 +12,34 @@ fn union(a: Set, b: Set) -> Set {
     }
     l;
 }
+
+fn globals(e: @knf.Knf) -> Set {
+    match e {
+        Let((a, _), _, c) => union(Set::from_array([a]), globals(c))
+        LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
+        _ => Set::new();
+    }
+}
+
 fn captured(e: @knf.Knf) -> Set {
     match e {
-        Int(_) | Double(_) | Unit => @immut/hashset.T::new()
+        Int(_) | Double(_) | Unit => Set::new()
 
         Put(a, b, c) =>
-            @immut/hashset.T::from_array([a, b, c])
+            Set::from_array([a, b, c])
 
         Add(a, b) | Sub(a, b) | Mul(a, b) | Div(a, b) |
         FAdd(a, b) | FSub(a, b) | FMul(a, b) | FDiv(a, b) |
         Eq(a, b) | Le(a, b) | Get(a, b) => 
-            @immut/hashset.T::from_array([a, b])
+            Set::from_array([a, b])
 
         Neg(a) | BNeg(a) | FNeg(a) | Var(a) => 
-            @immut/hashset.T::from_array([a])
+            Set::from_array([a])
 
         ExternalArray(_) => @util.die("External array not supported")
-        ExternalFunctionApplication(_, args) => @immut/hashset.T::from_array(args)
-        Apply(f, args) => @immut/hashset.T::from_array([f, ..args])
-        Tuple(arr) => @immut/hashset.T::from_array(arr)
+        ExternalFunctionApplication(_, args) => Set::from_array(args)
+        Apply(f, args) => Set::from_array([f, ..args])
+        Tuple(arr) => Set::from_array(arr)
 
         IfEq(a, b, l, r) | IfLe(a, b, l, r) => {
             let mut z = union(captured(l), captured(r));
@@ -72,6 +85,7 @@ pub fn lowtype(x: @types.Type) -> LowType {
 }
 
 let funcs: Array[FuncDef] = [];
+
 pub fn convert(knf: @knf.Knf) -> Expr {
     match knf {
         Unit => Unit
@@ -108,7 +122,11 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Apply(f, args) => Call(f, args)
         
         LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
-            let cap = Array::from_iter(captured(knf).iter());
+            let mut caps = captured(knf);
+            for x in glob.val {
+                caps = caps.remove(x);
+            }
+            let cap = Array::from_iter(caps.iter());
             let lowty = lowtype(ty);
             funcs.push(FuncDef :: {
                 name: f_name.name.unwrap(),
@@ -126,6 +144,7 @@ pub fn convert(knf: @knf.Knf) -> Expr {
 }
 
 pub fn closure(prog: @knf.Knf) -> Program {
+    glob.val = globals(prog);
     let body = convert(prog);
     return Program::{ fundefs: funcs, body: body };
 }

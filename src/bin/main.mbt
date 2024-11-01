@@ -109,12 +109,8 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             self.closure_ir = Some(closure_ir)
         }
         Asm => {
-            if (js.val) {
-                
-            } else {
-                let real_asm = @riscv.emit(self.closure_ir.unwrap())
-                self.asm = Some(real_asm)
-            }
+            let real_asm = @riscv.emit(self.closure_ir.unwrap())
+            self.asm = Some(real_asm)
         }
         Finished => ()
     }

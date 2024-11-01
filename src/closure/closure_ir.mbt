@@ -43,8 +43,6 @@ pub struct Closure {
 pub struct FuncDef {
     name : Label
     old_name : Name
-    /// true if the function is a closure function, and the closure will be available at `s11` on 
-    /// function entry.
     is_closure : Bool
     ty : LowType
     args : Array[(Name, LowType)]

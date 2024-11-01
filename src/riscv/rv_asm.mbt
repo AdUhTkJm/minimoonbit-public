@@ -103,7 +103,7 @@ fn which() -> Reg {
 fn offset(r: Reg) -> Int {
     match r {
         Spilt(x) => x
-        Fake(x) => match t.regs[x] {
+        Fake(x) => match current_func.val.regs[x] {
             Some(Spilt(x)) => x
             _ => -1
         }

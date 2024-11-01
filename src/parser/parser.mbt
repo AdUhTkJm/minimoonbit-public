@@ -1,5 +1,8 @@
 struct Tstream {
+    // Current token we are looking at
     mut x: Int
+
+    // All tokens
     mut tokens: Array[@lex.Token]
 }
 

@@ -39,7 +39,7 @@ fn T::new() -> T {
         rcnt: 1000000,
         labelcount: 0,
         funcs: [],
-        all_used: @immut/sorted_set.T::new()
+        all_used: @immut/sorted_set.T::new(),
     }
 }
 
@@ -223,6 +223,10 @@ fn regalloc(asm: Array[RvAsm]) -> Unit {
 
     to_alloc.sort_by(fn (a, b) { t.first_used[a].unwrap() - t.first_used[b].unwrap(); });
     for r in to_alloc {
+        if (@closure.glob.val.contains(r)) {
+            continue;
+        }
+
         reg(r);
     }
 }
@@ -284,16 +288,16 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         ArrayGet(x, i) => {
             let r = fake();
-            // r = *(x + (i << 2));
-            asm.push(Slti(r, Fake(i), 2));
+            // r = *(x + (i << 3));
+            asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
             asm.push(Lw(r, { base: r, offset: 0 }));
             r;
         }
         ArrayPut(x, i, val) => {
             let r = fake();
-            // *(x + (i << 2)) = val;
-            asm.push(Slti(r, Fake(i), 2));
+            // *(x + (i << 3)) = val;
+            asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
             asm.push(Sw(Fake(val), { base: r, offset: 0 }));
             A0;
@@ -335,7 +339,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             t.labelcount += 1;
 
             let r = fake();
-            asm.push(Bge(Fake(a), Fake(b), l_else));
+            asm.push(Bgt(Fake(a), Fake(b), l_else));
             asm.push(Mv(r, emit_expr(body)));
             asm.push(J(end));
             asm.push(Label(l_else));
@@ -361,6 +365,11 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             if (args.length() != 0) {
                 asm.push(Mv(A0, Fake(args[0])));
             }
+
+            // Only create_**_array methods need 2 arguments
+            if (name._.ends_with("_array")) {
+                asm.push(Mv(A1, Fake(args[1])));
+            }
             asm.push(Call(name._));
             A0
         }
@@ -384,7 +393,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Jalr(func));
             A0
         }
-        _ => @util.die("!!")
+        _ => @util.die("Undefined \{expr}")
     }
 }
 
@@ -395,85 +404,111 @@ fn weak_eq(a: Reg, b: Reg) -> Bool {
     }
 }
 
+// If referencing global things, make it correct
 pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
-    let mut i = 0;
     let result = [];
-    while (i < asm.length()) {
-        match asm[i] {
-            Mv(a, b) => { 
-                let r = Some(b);
-                // If reg() hasn't allocated, b must have never appeared as rd
-                // Hence b is a function
-                if (is_fake(r) && t.regs.contains(real(r)).not()) {
-                    // Note that this can very much be "mv a0, ..."
-                    // And we use a0 intensively, so have to take care
-                    let is_a0 = weak_eq(a, A0);
-                    let target = if (is_a0) { fake() } else { a };
-
-                    let args: Array[(@typing.Name, Int)] = [];
-                    let mut offset = 0;
-                    let f_name = real(r);
-                    let f = find_func(f_name).unwrap();
-                    for z in f.captured {
-                        args.push((z.0, offset));
-                        offset += 8;
-                    }
-
-                    // Closure is compiled as:
-
-                    // struct Closure { void* (*func)(void*); void* env;  };
-                    // This has size 16
-
-                    // We save a Closure* in register 'f_name',
-                    // which currently holds a function pointer
-                    if (args.length() != 0) {
-                        let t = fake();
-
-                        // void* a0 = malloc(env_size);
-                        result.push(Li(A0, offset.to_string()));
-                        result.push(Call("minimbt_malloc"));
-                        result.push(Mv(t, A0));
-                        
-                        // Copy environment to space at a0
-                        ignore(args.mapi(fn (i, x) {
-                            result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
-                        }));
-
-                        // void* a0 = malloc(16);
-                        result.push(Li(A0, "16"));
-                        result.push(Call("minimbt_malloc"));
-
-                        // Save Closure in memory
-                        result.push(La(target, f_name.name.unwrap()));
-                        result.push(Sd(target, { base: A0, offset: 0 }));
-                        result.push(Sd(t, { base: A0, offset: 8 }));
-                        if (is_a0.not()) {
-                            result.push(Mv(target, A0));
-                        }
-                    } else {
-                        // void* a0 = malloc(16);
-                        result.push(Li(A0, "16"));
-                        result.push(Call("minimbt_malloc"));
-
-                        // Save Closure in memory, but ignore env part
-                        result.push(La(target, real(r).name.unwrap()));
-                        result.push(Sd(target, { base: A0, offset: 0 }));
-                        if (is_a0.not()) {
-                            result.push(Mv(target, A0));
-                        }
-                    }
-                } else {
-                    result.push(asm[i]);
-                }
-            }
-            _ => result.push(asm[i])
+    for i = 0; i < asm.length(); i = i + 1 {
+    
+    match asm[i] { Mv(a, b) => {
+        // If a is global, then this is initialization a of global variable
+        let w = Some(a);
+        if (is_fake(w) && @closure.glob.val.contains(real(w))) {
+            // We need to do "*a = b" instead of "a = b"
+            let temp = fake();
+            result.push(La(temp, a.to_string()));
+            result.push(Sd(b, { base: temp, offset: 0 }));
+            continue;
         }
-        i += 1;
+
+        // If b is just normal, then nothing to do
+        let r = Some(b);
+        if (is_fake(r).not()) {
+            result.push(asm[i]);
+            continue;
+        }
+
+        // Now b can be something difficult to manage
+    
+        // Note that this can very much be "mv a0, b"
+        // And we use a0 intensively, so have to take care
+        let target = if (weak_eq(a, A0)) { fake() } else { a };
+        let f_name = real(r);
+
+        // If b is a function, we need to make it a closure
+        if (find_func(f_name).is_empty().not()) {
+            let args: Array[(@typing.Name, Int)] = [];
+            let mut offset = 0;
+            let f = find_func(f_name).unwrap();
+            let name = f_name.name.unwrap();
+            for z in f.captured {
+                args.push((z.0, offset));
+                offset += 8;
+            }
+
+            // Closure is compiled as:
+
+            // struct Closure { void* (*func)(void*); void* env;  };
+            // This has size 16
+
+            // We save a Closure* in register 'f_name',
+            // which currently holds a function pointer
+            if (args.length() != 0) {
+                let t = fake();
+
+                // void* a0 = malloc(env_size);
+                result.push(Li(A0, offset.to_string()));
+                result.push(Call("minimbt_malloc"));
+                result.push(Mv(t, A0));
+                
+                // Copy environment to space at a0
+                ignore(args.mapi(fn (i, x) {
+                    result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
+                }));
+
+                // void* a0 = malloc(16);
+                result.push(Li(A0, "16"));
+                result.push(Call("minimbt_malloc"));
+
+                // Save Closure in memory
+                result.push(La(target, name));
+                result.push(Sd(target, { base: A0, offset: 0 }));
+                result.push(Sd(t, { base: A0, offset: 8 }));
+                result.push(Mv(target, A0));
+            } else {
+                // void* a0 = malloc(16);
+                result.push(Li(A0, "16"));
+                result.push(Call("minimbt_malloc"));
+
+                // Save Closure in memory, but ignore env part
+                result.push(La(target, name));
+                result.push(Sd(target, { base: A0, offset: 0 }));
+                result.push(Mv(target, A0));
+            }
+            continue;
+        }
+        
+        // This is global, but not a function
+        // Hence b must be a global variable
+        if (@closure.glob.val.contains(f_name)) {
+            // We need to reform it as "a = *b"
+            let temp = fake();
+            result.push(La(temp, f_name.to_string()));
+            result.push(Ld(a, { base: temp, offset: 0 }));
+            continue;
+        }
+
+        // Nothing special, just put it back
+        result.push(asm[i]);
+
+    }
+        // Match ...
+        _ => result.push(asm[i])
+        }
     }
     return result;
 }
 
-pub fn tidy_2(body: Array[RvAsm]) -> Unit {
+fn remove_unused(body: Array[RvAsm]) -> Unit {
     let mut i = 0;
     let asm = body.copy();
     body.clear();
@@ -497,6 +532,48 @@ pub fn tidy_2(body: Array[RvAsm]) -> Unit {
     }
 }
 
+// Outputs labels for global variables
+pub fn emit_global(logger: Logger) -> Unit {
+    logger.write_string(".section .data\n");
+    for x in @closure.glob.val {
+        if (find_func(x).is_empty().not()) {
+            continue;
+        }
+        
+        logger.write_string("\{x.to_string()}:\n    .dword 0\n");
+    }
+}
+
+// Entry point of program
+fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
+    asm.clear();
+
+    fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
+        match expr {
+            Let((a, t), val, w) => {
+                // The final command of body will be a call to main()
+                // So instead of making it a closure (in tidy())
+                // we will directly compile it into a call
+                match val {
+                    Var({ name: Some("main"), .. }) => Unit
+                    _ => Let((a, t), val, eliminate_main_call(w))
+                }
+            }
+            _ => @util.die("Unexpected global \{expr}");
+        }
+    }
+
+    @closure.FuncDef :: {
+        name: "minimbt_main",
+        old_name: @typing.Name:: { name: Some("minimbt_main"), slot: -1 },
+        is_closure: false,
+        ty: @closure.LowType::Fun([], @closure.LowType::Unit),
+        args: [],
+        captured: [],
+        body: eliminate_main_call(body)
+    }
+}
+
 fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     asm.clear();
     t_clear();
@@ -509,24 +586,36 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         load_arg.push(Mv(Fake(x.0), Arg(i)));
     }));
 
-    if (fun.name._ != "main") {
-        let env = Arg(fun.args.length());
-        ignore(fun.captured.mapi(fn (i, x) {
-            load_arg.push(Ld(Fake(x.0), { base: env, offset: i * 8 }));
-        }));
-    }
+    // Load environment (if this is a closure)
+    let env = Arg(fun.args.length());
+    ignore(fun.captured.mapi(fn (i, x) {
+        load_arg.push(Ld(Fake(x.0), { base: env, offset: i * 8 }));
+    }));
 
 
     let pseudobody = [
         ..load_arg,
         ..asm,
+        Mv(A0, ret),
     ];
 
+    if (fun.name._ == "minimbt_main") {
+        pseudobody.push(Call("main"));
+    }
+
     regalloc(pseudobody);
+
+    // Prologue and Epilogue is dealt with at output()
+    let body = tidy(pseudobody);
+
+    t_clear();
+    regalloc(body);
+    offset = t.offset;
 
     // Preserve registers
     let pre: Array[RvAsm] = [];
     let post: Array[RvAsm] = [];
+
     for r in [Ra, ..t.all_used] {
         if (reg_callee_saved_list.contains(r).not() && weak_eq(r, Ra).not()) {
             continue;
@@ -536,24 +625,32 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         offset += 8;
     }
 
-    // Prologue and Epilogue is dealt with at output()
-    let body = [
+    let full_body = [
         ..pre,
-        ..pseudobody,
-        Mv(A0, ret),
-        ..post,
-    ]
+        ..body,
+        ..post
+    ];
+    remove_unused(full_body);
+
+    offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
     AssemblyFunction :: {
-        name: if (fun.name._ == "main") { "minimbt_main" } else { fun.name._ },
-        export: true,
-        body: tidy(body),
-        offset: offset
+        name: fun.name._,
+        body: [
+            Addi(Sp, Sp, -offset),
+            ..full_body,
+            Addi(Sp, Sp, offset),
+            Ret
+        ],
+        regs: Map::from_iter(t.regs.iter()),
     }
 }
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
-    t.funcs = program.fundefs;
+    t.funcs = [
+        ..program.fundefs,
+        emit_main(program.body)
+    ];
 
     // Remove all captures of toplevel functions
     ignore(t.funcs.map(fn (f) {
@@ -561,44 +658,36 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
         f.captured.clear();
 
         for x in copy {
-            if t.funcs.fold(~init = false, fn (found, z) { found || z.old_name == x.0 }).not() {
+            if (t.funcs.fold(~init = false, fn (found, z) { found || z.old_name == x.0 }).not()) {
                 f.captured.push(x);
             }
         }
     }));
 
     let arr = t.funcs.map(emit_fn);
+
     t_clear();
-    ignore(arr.map(fn (x) { t.offset = x.offset; regalloc(x.body); x.offset = t.offset }));
-    ignore(arr.map(fn (x) { tidy_2(x.body) } ));
     return arr;
 }
 
 pub struct AssemblyFunction {
     name : String
-    export : Bool
     body : Array[RvAsm]
-    mut offset: Int
+    mut regs: Map[@typing.Name, Reg]
 }
 
 pub fn AssemblyFunction::output(
     self : AssemblyFunction,
     logger : Logger
 ) -> Unit {
-    self.offset = (self.offset.to_double() / 16.0).ceil().to_int() * 16;
-    let name = self.name
-    if self.export {
-        logger.write_string(".global \{name}\n")
-    }
+    current_func.val = self;
+
+    let name = self.name;
+    logger.write_string(".global \{name}\n")
     logger.write_string("\{name}:\n")
 
-    Show::output(Addi(Sp, Sp, - self.offset), logger);
-    logger.write_string("\n")
     for asm in self.body {
         Show::output(asm, logger)
         logger.write_string("\n")
     }
-    Show::output(Addi(Sp, Sp, self.offset), logger);
-    logger.write_string("\n")
-    Show::output(Ret, logger);
 }

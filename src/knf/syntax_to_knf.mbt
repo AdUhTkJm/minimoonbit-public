@@ -7,7 +7,11 @@ struct KnfEnv {
 }
 
 pub fn KnfEnv::new(externals : @immut/hashmap.T[String, Type]) -> KnfEnv {
-    { counter: 1, externals, names: @immut/hashmap.T::new() }
+    KnfEnv :: {
+        counter: 1,
+        externals: externals,
+        names: @immut/hashmap.T::new(),
+    };
 }
 
 pub let typing: Map[@types.Name, @types.Type] = Map::new();
@@ -76,7 +80,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
         Array(len, elem) => {
             let ety = @typing.lookup(elem);
             let ty = match ety {
-                Int | Bool => "array"
+                Int | Bool => "ptr_array"
                 Double => "float_array"
                 _ => "ptr_array"
             };

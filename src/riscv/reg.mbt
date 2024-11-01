@@ -100,6 +100,8 @@ pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
 
 pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
 
+
+let current_func: Ref[AssemblyFunction] = Ref::new({ name: "", body: [], regs: Map::new() });
 pub fn Reg::to_string(self : Reg) -> String {
     match self {
         Zero => "zero"
@@ -167,8 +169,8 @@ pub fn Reg::to_string(self : Reg) -> String {
         Ft10 => "ft10"
         Ft11 => "ft11"
         FakeDouble(name) => "f.\{name}" // TODO
-        Fake(name) => if (t.regs.contains(name)) {
-            t.regs[name].unwrap().to_string()
+        Fake(name) => if (current_func.val.regs.contains(name)) {
+            current_func.val.regs[name].unwrap().to_string()
         } else {
             name.to_string()
         }
