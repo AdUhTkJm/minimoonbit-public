@@ -135,7 +135,7 @@ pub fn to_json(self : Syntax) -> Json {
       [op |> Json::String, e1.to_json(), e2.to_json()]
     }
     Eq(e1, e2) => ["Eq", e1.to_json(), e2.to_json()]
-    LE(e1, e2) => ["LE", e1.to_json(), e2.to_json()]
+    Le(e1, e2) => ["Le", e1.to_json(), e2.to_json()]
     If(e1, e2, e3) => ["If", e1.to_json(), e2.to_json(), e3.to_json()]
     Let((x, t), e1, e2) =>
       ["Let", [x |> Json::String, t.to_json()], e1.to_json(), e2.to_json()]
@@ -237,7 +237,7 @@ pub fn Syntax::from_json(json : Json) -> Syntax! {
         kind=Some(Kind::Double),
       )
     ["Eq", e1, e2] => Eq(e1 |> Syntax::from_json!(), e2 |> Syntax::from_json!())
-    ["LE", e1, e2] => LE(e1 |> Syntax::from_json!(), e2 |> Syntax::from_json!())
+    ["Le", e1, e2] => Le(e1 |> Syntax::from_json!(), e2 |> Syntax::from_json!())
     ["If", e1, e2, e3] =>
       If(
         e1 |> Syntax::from_json!(),

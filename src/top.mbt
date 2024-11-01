@@ -13,7 +13,7 @@ pub enum Syntax {
     If(Syntax, Syntax, Syntax) // if _ { _ } else { _ }
     Prim(Syntax, Syntax, Op, mut ~kind : Kind?) // _+ - * / _
     Eq(Syntax, Syntax) // _==_
-    LE(Syntax, Syntax) // _<=_
+    Le(Syntax, Syntax) // _<=_
     Let((String, Type), Syntax, Syntax) // let _: _ = _; _
     LetRec(Fundef, Syntax) // fn f() {} ; _
     LetTuple(Array[(String, Type)], Syntax, Syntax) // let (_ , _) : (_, _)= _; _

@@ -20,8 +20,6 @@ pub fn Expr::to_json(self : Expr) -> Json {
         Expr::Let((n, t), e1, e2) =>
             ["Let", [n.to_json(), t.to_json()], e1.to_json(), e2.to_json()]
         Expr::Var(n) => ["Var", n.to_json()]
-        Expr::CopyValue(f, e) =>
-            ["CopyValue", f.to_json(), e.to_json()]
         Expr::Call(n, ns) => ["Call", n.to_json(), ns.to_json()]
         Expr::CallExternal(l, ns) => ["CallExternal", l._.to_json(), ns.to_json()]
         Expr::MakeTuple(ns) => ["MakeTuple", ns.to_json()]
@@ -37,6 +35,7 @@ pub fn Expr::to_json(self : Expr) -> Json {
         Expr::ArrayPut(n1, n2, n3) =>
             ["ArrayPut", n1.to_json(), n2.to_json(), n3.to_json()]
         Expr::ExternalArray(l) => ["ExternalArray", l._.to_json()]
+        _ => []
     }
 }
 
@@ -76,12 +75,6 @@ pub fn Expr::from_json(json : Json) -> Expr! {
                 Expr::from_json!(e2),
             )
         ["Var", n] => Expr::Var(Name::from_json!(n))
-        ["CopyValue", f, e] => {
-            Expr::CopyValue(
-                Name::from_json!(f),
-                Expr::from_json!(e)
-            )
-        }
         ["Call", n, Array(ns)] => {
             let ns_res = []
             for n in ns {
@@ -202,8 +195,8 @@ pub fn FuncDef::to_json(self : FuncDef) -> Json {
         "formal_free_vars": {
             let res = []
             for nt in self.captured {
-                let (n, t) = nt
-                res.push(Json::Array([n.to_json(), t.to_json()]))
+                let n = nt
+                res.push(Json::Array([n.to_json()]))
             }
             Array(res)
         },
@@ -232,9 +225,9 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
             let formal_free_vars_res = []
             for nt in formal_free_vars {
                 match nt {
-                    [n, t] =>
+                    [n] =>
                         formal_free_vars_res.push(
-                            (Name::from_json!(n), LowType::from_json!(t)),
+                            (Name::from_json!(n)),
                         )
                     _ => fail!("invalid json")
                 }

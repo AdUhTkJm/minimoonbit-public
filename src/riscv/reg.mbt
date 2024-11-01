@@ -39,9 +39,6 @@ pub enum Reg {
     T4
     T5
     T6
-    Fake(@typing.Name)
-    Arg(Int)
-    Spilt(Int)
     Ft0
     Ft1
     Ft2
@@ -74,7 +71,9 @@ pub enum Reg {
     Ft9
     Ft10
     Ft11
-    FakeDouble(@typing.Name)
+    Fake(@typing.Name)
+    Arg(Int)
+    Spilt(Int)
 } derive(Eq, Compare, Hash)
 
 pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5]
@@ -168,12 +167,12 @@ pub fn Reg::to_string(self : Reg) -> String {
         Ft9 => "ft9"
         Ft10 => "ft10"
         Ft11 => "ft11"
-        FakeDouble(name) => "f.\{name}" // TODO
-        Fake(name) => if (current_func.val.regs.contains(name)) {
-            current_func.val.regs[name].unwrap().to_string()
-        } else {
-            name.to_string()
-        }
+        Fake(name) =>
+            if (current_func.val.regs.contains(name)) {
+                current_func.val.regs[name].unwrap().to_string()
+            } else {
+                name.to_string()
+            }
         Arg(i) => reg_arg_list[i].to_string()
         Spilt(i) => "spilt.\{i}"
     }

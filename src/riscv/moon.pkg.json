@@ -6,6 +6,7 @@
       "alias": "typing"
     },
     "moonbitlang/minimbt/util",
-    "lijunchen/unstable_io/env"
+    "lijunchen/unstable_io/env",
+    "moonbitlang/minimbt/knf"
   ]
 }

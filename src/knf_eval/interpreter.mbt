@@ -63,7 +63,7 @@ pub fn KnfInterpreter::eval(
     Unit => Unit
     Int(i) => Int(i)
     Double(d) => Double(d)
-    Var(v) => find!(env, v)
+    Var(v) | FVar(v) => find!(env, v)
     Neg(x) => {
       let x = find!(env, x)
       match x {
@@ -295,6 +295,5 @@ pub fn KnfInterpreter::eval(
       }
       f(argv)
     }
-    z => @util.die("Unexpected when interpreting \{z}")
   }
 }

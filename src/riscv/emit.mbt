@@ -127,13 +127,15 @@ fn reg_used(asm: RvAsm) -> RegFile {
         Ld(rd, { base: rs1, offset: _ }) |
         Lbu(rd, { base: rs1, offset: _ }) |
         Lhu(rd, { base: rs1, offset: _ }) |
-        Lwu(rd, { base: rs1, offset: _ }) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
+        Lwu(rd, { base: rs1, offset: _ }) |
+        Fld(rd, { base: rs1, offset: _ })=> { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
 
         // Here rd is unchanged, so only a read
-        Sb(rd, _) |
-        Sh(rd, _) |
-        Sw(rd, _) |
-        Sd(rd, _) => { rd : None, rs1 : Some(rd), rs2 : None }
+        Sb(rd, { base: rs1, offset: _ }) |
+        Sh(rd, { base: rs1, offset: _ }) |
+        Sw(rd, { base: rs1, offset: _ }) |
+        Sd(rd, { base: rs1, offset: _ }) |
+        Fsd(rd, { base: rs1, offset: _ }) => { rd : None, rs1 : Some(rs1), rs2 : Some(rd) }
 
         Beq(rs1, rs2, _) |
         Bne(rs1, rs2, _) |
@@ -154,20 +156,28 @@ fn reg_used(asm: RvAsm) -> RegFile {
         Divu(rd, rs1, rs2) |
         Rem(rd, rs1, rs2) |
         Remw(rd, rs1, rs2) |
-        Remu(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
+        Remu(rd, rs1, rs2) |
+        FaddD(rd, rs1, rs2) |
+        FsubD(rd, rs1, rs2) |
+        FmulD(rd, rs1, rs2) |
+        FeqD(rd, rs1, rs2) |
+        FleD(rd, rs1, rs2) |
+        FdivD(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
 
         La(rd, _) |
         Li(rd, _) => { rd : Some(rd), rs1 : None, rs2 : None }
 
         Neg(rd, rs1) |
+        FnegD(rd, rs1) |
+        FmvD(rd, rs1) |
+        FmvDX(rd, rs1) |
+        FmvXD(rd, rs1) |
         Mv(rd, rs1) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
 
         Nop | Ecall | J(_) | Call(_) | Tail(_) | Ret | Label(_) | Comment(_)
             => { rd : None, rs1 : None, rs2 : None }
         
         Jalr(rs1) | Jr(rs1) => { rd : None, rs1 : Some(rs1), rs2 : None }
-
-        _ => @util.die("no floating point")
     }
 }
 
@@ -206,7 +216,7 @@ fn store_last(reg: Option[Reg], i: Int) -> Unit {
     }
 }
 
-fn regalloc(asm: Array[RvAsm]) -> Unit {
+fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
     let to_alloc: Array[@typing.Name] = [];
 
     // Record all assigned registers
@@ -221,12 +231,32 @@ fn regalloc(asm: Array[RvAsm]) -> Unit {
         store_last(used.rs2, i);
     }
 
+    // After tidy(), remove unused Names
+    // otherwise their last_used won't exist and makes reg() fail to work
+    if (tidy) {
+        let no_use: Array[@typing.Name] = [];
+        for x in to_alloc {
+            if (t.last_used.contains(x).not()) {
+                no_use.push(x);
+            }
+        }
+        let copy = asm.copy();
+        asm.clear();
+        for x in copy {
+            let used = reg_used(x);
+            if (is_fake(used.rd) && no_use.contains(real(used.rd))) {
+                continue;
+            }
+            asm.push(x);
+        }
+    }
+
+
     to_alloc.sort_by(fn (a, b) { t.first_used[a].unwrap() - t.first_used[b].unwrap(); });
     for r in to_alloc {
         if (@closure.glob.val.contains(r)) {
             continue;
         }
-
         reg(r);
     }
 }
@@ -235,9 +265,15 @@ fn regalloc(asm: Array[RvAsm]) -> Unit {
 fn emit_expr(expr: @closure.Expr) -> Reg {
     match expr {
         Unit => A0
+        Var(x) | FVar(x) => Fake(x)
         Int(x) => {
             let r = fake();
             asm.push(Li(r, x.to_string()));
+            r;
+        }
+        Double(x) => {
+            let r = fake();
+            asm.push(Li(r, x.reinterpret_as_i64().to_string()));
             r;
         }
         Add(a, b) => {
@@ -258,6 +294,45 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         Mul(a, b) => {
             let r = fake();
             asm.push(Mul(r, Fake(a), Fake(b)));
+            r;
+        }
+        FAdd(a, b) => {
+            let r = fake();
+            asm.push(FmvDX(Ft1, Fake(a)));
+            asm.push(FmvDX(Ft2, Fake(b)));
+            asm.push(FaddD(Ft1, Ft1, Ft2));
+            asm.push(FmvXD(r, Ft1));
+            r;
+        }
+        FSub(a, b) => {
+            let r = fake();
+            asm.push(FmvDX(Ft1, Fake(a)));
+            asm.push(FmvDX(Ft2, Fake(b)));
+            asm.push(FsubD(Ft1, Ft1, Ft2));
+            asm.push(FmvXD(r, Ft1));
+            r;
+        }
+        FDiv(a, b) => {
+            let r = fake();
+            asm.push(FmvDX(Ft1, Fake(a)));
+            asm.push(FmvDX(Ft2, Fake(b)));
+            asm.push(FdivD(Ft1, Ft1, Ft2));
+            asm.push(FmvXD(r, Ft1));
+            r;
+        }
+        FMul(a, b) => {
+            let r = fake();
+            asm.push(FmvDX(Ft1, Fake(a)));
+            asm.push(FmvDX(Ft2, Fake(b)));
+            asm.push(FmulD(Ft1, Ft1, Ft2));
+            asm.push(FmvXD(r, Ft1));
+            r;
+        }
+        FNeg(a) => {
+            let r = fake();
+            asm.push(FmvDX(Ft1, Fake(a)));
+            asm.push(FnegD(Ft1, Ft1));
+            asm.push(FmvXD(r, Ft1));
             r;
         }
         Eq(a, b) => {
@@ -291,7 +366,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             // r = *(x + (i << 3));
             asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
-            asm.push(Lw(r, { base: r, offset: 0 }));
+            asm.push(Ld(r, { base: r, offset: 0 }));
             r;
         }
         ArrayPut(x, i, val) => {
@@ -299,13 +374,14 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             // *(x + (i << 3)) = val;
             asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
-            asm.push(Sw(Fake(val), { base: r, offset: 0 }));
+            asm.push(Sd(Fake(val), { base: r, offset: 0 }));
             A0;
         }
         MakeTuple(arr) => {
             let r = fake();
             // Allocate an array for the tuple
             asm.push(Li(A0, (8 * arr.length()).to_string()));
+            asm.push(Call("minimbt_create_ptr_array"));
             // Put everything into the array
             ignore(arr.mapi(fn (i, x) {
                 asm.push(Sd(Fake(x), { base: A0, offset: i * 8 }));
@@ -321,10 +397,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             let r = fake();
 
-            // if (a != b) { goto else; }
-            // body; goto end;
-            // else { otherwise }
-            // end
             asm.push(Bne(Fake(a), Fake(b), l_else));
             asm.push(Mv(r, emit_expr(body)));
             asm.push(J(end));
@@ -358,9 +430,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             }));
             emit_expr(w);
         }
-        Var(x) => {
-            Fake(x)
-        }
         CallExternal(name, args) => {
             if (args.length() != 0) {
                 asm.push(Mv(A0, Fake(args[0])));
@@ -393,7 +462,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Jalr(func));
             A0
         }
-        _ => @util.die("Undefined \{expr}")
+        ExternalArray(_) => @util.die("External array not supported")
     }
 }
 
@@ -441,7 +510,7 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             let f = find_func(f_name).unwrap();
             let name = f_name.name.unwrap();
             for z in f.captured {
-                args.push((z.0, offset));
+                args.push((z, offset));
                 offset += 8;
             }
 
@@ -589,7 +658,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Load environment (if this is a closure)
     let env = Arg(fun.args.length());
     ignore(fun.captured.mapi(fn (i, x) {
-        load_arg.push(Ld(Fake(x.0), { base: env, offset: i * 8 }));
+        load_arg.push(Ld(Fake(x), { base: env, offset: i * 8 }));
     }));
 
 
@@ -603,13 +672,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         pseudobody.push(Call("main"));
     }
 
-    regalloc(pseudobody);
+    regalloc(pseudobody, false);
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody);
 
     t_clear();
-    regalloc(body);
+    regalloc(body, true);
     offset = t.offset;
 
     // Preserve registers
@@ -658,7 +727,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
         f.captured.clear();
 
         for x in copy {
-            if (t.funcs.fold(~init = false, fn (found, z) { found || z.old_name == x.0 }).not()) {
+            if (t.funcs.fold(~init = false, fn (found, z) { found || z.old_name == x }).not()) {
                 f.captured.push(x);
             }
         }
@@ -680,6 +749,15 @@ pub fn AssemblyFunction::output(
     self : AssemblyFunction,
     logger : Logger
 ) -> Unit {
+    let externs = ["print_int", "print_endline", "truncate", "print_char",
+            "read_int", "read_char", "int_of_float", "float_of_int",
+            "sin", "cos", "atan", "sqrt", "abs_float", "floor"];
+
+    // We handle these external functions elsewhere
+    if (externs.contains(self.name)) {
+        return;
+    }
+
     current_func.val = self;
 
     let name = self.name;

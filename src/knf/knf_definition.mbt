@@ -23,6 +23,7 @@ pub enum Knf {
   IfLe(Name, Name, Knf, Knf)
   Let((Name, Type), Knf, Knf)
   Var(Name)
+  FVar(Name)
   LetRec(FuncDef, Knf)
   Apply(Name, Array[Name])
   Tuple(Array[Name])

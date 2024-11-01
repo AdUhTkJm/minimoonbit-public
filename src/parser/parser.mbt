@@ -186,7 +186,7 @@ fn expr() -> @types.Syntax {
             x = Eq(x, add());
         }
         if (n == Lequal) {
-            x = LE(x, add());
+            x = Le(x, add());
         }
     }
     return x;

@@ -33,7 +33,7 @@ fn captured(e: @knf.Knf) -> Set {
         Eq(a, b) | Le(a, b) | Get(a, b) => 
             Set::from_array([a, b])
 
-        Neg(a) | BNeg(a) | FNeg(a) | Var(a) => 
+        Neg(a) | BNeg(a) | FNeg(a) | Var(a) | FVar(a) => 
             Set::from_array([a])
 
         ExternalArray(_) => @util.die("External array not supported")
@@ -53,8 +53,8 @@ fn captured(e: @knf.Knf) -> Set {
         }
         // LetRec is special; we don't want to process more,
         // since this is already a self-contained function
-        LetRec({ name: f_name, ty: _, args: args, body: syn }, _) => {
-            let mut z = captured(syn);
+        LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
+            let mut z = union(captured(w), captured(syn));
             for y in args {
                 z = z.remove(y.0);
             }
@@ -102,6 +102,7 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Eq(a, b) => Eq(a, b)
         Le(a, b) => Le(a, b)
         Var(x) => Var(x)
+        FVar(x) => FVar(x)
         Neg(a) => Neg(a)
         FNeg(a) => FNeg(a)
         BNeg(a) => BNeg(a)
@@ -122,7 +123,10 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Apply(f, args) => Call(f, args)
         
         LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
-            let mut caps = captured(knf);
+            let mut caps = captured(syn);
+            for x in args {
+                caps = caps.remove(x.0);
+            }
             for x in glob.val {
                 caps = caps.remove(x);
             }
@@ -134,7 +138,7 @@ pub fn convert(knf: @knf.Knf) -> Expr {
                 is_closure: cap.length() != 0,
                 ty: lowty,
                 args: args.map(fn (z) { (z.0, lowtype(z.1)) }),
-                captured: cap.map(fn (z) { (z, lowtype(@knf.typing[z].unwrap())) }),
+                captured: cap.map(fn (z) { z }),
                 body: convert(syn),
             });
             convert(w)

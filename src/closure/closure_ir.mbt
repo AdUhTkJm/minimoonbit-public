@@ -25,7 +25,7 @@ pub enum Expr {
     IfLe(Name, Name, Expr, Expr)
     Let((Name, LowType), Expr, Expr)
     Var(Name)
-    CopyValue(Name, Expr)
+    FVar(Name)
     Call(Name, Array[Name])
     CallExternal(Label, Array[Name])
     MakeTuple(Array[Name])
@@ -46,7 +46,7 @@ pub struct FuncDef {
     is_closure : Bool
     ty : LowType
     args : Array[(Name, LowType)]
-    captured : Array[(Name, LowType)]
+    captured : Array[Name]
     body : Expr
 } derive(Show)
 

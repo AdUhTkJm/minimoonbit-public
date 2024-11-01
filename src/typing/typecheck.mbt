@@ -178,7 +178,7 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             unify(ty, infer(otherwise, env));
             ty
         }
-        Eq(a, b) | LE(a, b) => {
+        Eq(a, b) | Le(a, b) => {
             let ta = infer(a, env);
             let tb = infer(b, env);
             unify(ta, tb);
@@ -217,7 +217,6 @@ pub fn typed(ast: @types.Syntax) -> @types.Syntax {
             LetTuple(arr.map(fn (z) { (z.0, resolve(z.1)) }), s1, s2)
         v => v
     }
-
 }
 
 pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {

@@ -24,7 +24,7 @@ fn eval(x: @types.Syntax) -> String {
             "(function() { if (\{eval(cond)}) return (\{eval(body)}); else return (\{eval(otherwise)}) })()"
 
         Eq(a, b) => "(\{eval(a)} == \{eval(b)})"
-        LE(a, b) => "(\{eval(a)} <= \{eval(b)})"
+        Le(a, b) => "(\{eval(a)} <= \{eval(b)})"
 
         Let((a, _), val, w) =>
             "(function() { var \{a} = (\{eval(val)}); \nreturn \{eval(w)} })()"

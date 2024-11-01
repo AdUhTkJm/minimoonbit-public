@@ -48,7 +48,7 @@ fn find(self: ClosureInterpreter, name : Name) -> Value!Failure {
         if (z.old_name == name) {
             let env: Array[Value] = [];
             for i = 0; i < z.captured.length(); i = i + 1 {
-                let (x, _) = z.captured[i]
+                let x = z.captured[i]
                 env.push(self.find!(x))
             }
             return Func(z, env);
@@ -75,7 +75,7 @@ pub fn ClosureInterpreter::eval(
         Unit => Unit
         Int(i) => Int(i)
         Double(d) => Double(d)
-        Var(v) => self.find!(v)
+        Var(v) | FVar(v) => self.find!(v)
         Neg(x) => {
             let x = self.find!(x)
             match x {
@@ -285,10 +285,6 @@ pub fn ClosureInterpreter::eval(
             }
             Unit
         }
-        CopyValue(f, w) => {
-            self.env = self.env.add(f, self.find!(f));
-            self.eval!(w);
-        }
         ExternalArray(_) => fail!("ExternalArray is not supported")
     }
 }
@@ -300,7 +296,7 @@ pub fn ClosureInterpreter::eval_fn(self: ClosureInterpreter, copied: Array[Value
         env = env.add(x, args[i])
     }
     for i = 0; i < func.captured.length(); i = i + 1 {
-        let (x, _) = func.captured[i]
+        let x = func.captured[i]
         env = env.add(x, copied[i])
     }
     self.env = env.add(func.old_name, Func(func, copied));
