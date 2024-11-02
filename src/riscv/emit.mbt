@@ -1,3 +1,9 @@
+// All external functions that runtime provides
+let externs: Array[String] =
+    ["print_int", "print_endline", "truncate", "print_char",
+    "read_int", "read_char", "int_of_float", "float_of_int",
+    "sin", "cos", "atan", "sqrt", "abs_float", "floor"];
+
 let asm: Array[RvAsm] = [];
 
 struct T {
@@ -508,7 +514,15 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             let args: Array[(@typing.Name, Int)] = [];
             let mut offset = 0;
             let f = find_func(f_name).unwrap();
-            let name = f_name.name.unwrap();
+
+            // to_string() will differentiate all local functions with same name
+            // But we don't want it for external functions
+            // otherwise we will get print_int_2 rather than print_int
+            let name = if (externs.contains(f_name.name.unwrap())) {
+                f_name.name.unwrap()
+            } else {
+                f_name.to_string()
+            };
             for z in f.captured {
                 args.push((z, offset));
                 offset += 8;
@@ -704,7 +718,14 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
     AssemblyFunction :: {
-        name: fun.name._,
+        name:
+            // We also want entry point to be unmodified
+            if (["minimbt_main", "main"].contains(fun.name._)) {
+                fun.name._
+            } else {
+                fun.old_name.to_string()
+            },
+        is_extern: externs.contains(fun.name._),
         body: [
             Addi(Sp, Sp, -offset),
             ..full_body,
@@ -741,6 +762,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
 
 pub struct AssemblyFunction {
     name : String
+    is_extern: Bool
     body : Array[RvAsm]
     mut regs: Map[@typing.Name, Reg]
 }
@@ -749,12 +771,9 @@ pub fn AssemblyFunction::output(
     self : AssemblyFunction,
     logger : Logger
 ) -> Unit {
-    let externs = ["print_int", "print_endline", "truncate", "print_char",
-            "read_int", "read_char", "int_of_float", "float_of_int",
-            "sin", "cos", "atan", "sqrt", "abs_float", "floor"];
 
     // We handle these external functions elsewhere
-    if (externs.contains(self.name)) {
+    if (self.is_extern) {
         return;
     }
 

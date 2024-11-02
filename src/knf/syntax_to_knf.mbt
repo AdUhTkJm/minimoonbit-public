@@ -102,7 +102,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
                 (Mul, Some(Double)) => FMul(a1, a2)
                 (Div, Some(Double)) => FDiv(a1, a2)
 
-                _ => @util.die("Internal error: to_knf()")
+                _ => @util.die("Illegal Prim: \{s}")
             }
             let ty = @typing.lookup(s);
             Let((a1, ty), self.to_knf(l), Let((a2, ty), self.to_knf(r), i));

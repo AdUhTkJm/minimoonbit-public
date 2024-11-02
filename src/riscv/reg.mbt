@@ -100,7 +100,7 @@ pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
 pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
 
 
-let current_func: Ref[AssemblyFunction] = Ref::new({ name: "", body: [], regs: Map::new() });
+let current_func: Ref[AssemblyFunction] = Ref::new({ name: "", body: [], regs: Map::new(), is_extern: false });
 pub fn Reg::to_string(self : Reg) -> String {
     match self {
         Zero => "zero"

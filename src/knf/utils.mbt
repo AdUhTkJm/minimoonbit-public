@@ -8,7 +8,9 @@ pub fn knf_max_counter(knf : Knf) -> Int {
     Sub(x, y) => @math.maximum(x.slot, y.slot)
     Mul(x, y) => @math.maximum(x.slot, y.slot)
     Div(x, y) => @math.maximum(x.slot, y.slot)
-    FNeg(x) => x.slot
+    Eq(x, y) => @math.maximum(x.slot, y.slot)
+    Le(x, y) => @math.maximum(x.slot, y.slot)
+    FNeg(x) | BNeg(x) => x.slot
     FAdd(x, y) => @math.maximum(x.slot, y.slot)
     FSub(x, y) => @math.maximum(x.slot, y.slot)
     FMul(x, y) => @math.maximum(x.slot, y.slot)
@@ -34,7 +36,7 @@ pub fn knf_max_counter(knf : Knf) -> Int {
         n.slot,
         @math.maximum(knf_max_counter(e1), knf_max_counter(e2)),
       )
-    Var(x) => x.slot
+    Var(x) | FVar(x) => x.slot
     LetRec(f, e) =>
       @math.maximum(
         f.name.slot,

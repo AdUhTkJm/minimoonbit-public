@@ -79,7 +79,10 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
         Bool(_) => Bool
         Unit => Unit
         Tuple(arr) => Tuple(arr.map(fn (z) { infer(z, env) }))
-        Array(_, elem) => Array(infer(elem, env))
+        Array(len, elem) => {
+            unify(infer(len, env), Int);
+            Array(infer(elem, env))
+        }
         Get(x, inner) => {
             let arr_ty = infer(x, env);
             unify(infer(inner, env), Int);
@@ -185,10 +188,7 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             Bool
         }
         ApplyExtern(_, args) => {
-            // necessary for lookup()
-            for z in args {
-                ignore(infer(z, env));
-            }
+            let _ = args.map(fn (x) { infer(x, env) });
             Var(Ref::new(None))
         }
     }
