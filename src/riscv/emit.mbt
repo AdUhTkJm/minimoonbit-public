@@ -690,9 +690,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody);
-
     t_clear();
     regalloc(body, true);
+
+    let opt = opt_remove_useless(body);
+    t_clear();
+    regalloc(opt, true);
+
     offset = t.offset;
 
     // Preserve registers
@@ -700,9 +704,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let post: Array[RvAsm] = [];
 
     for r in [Ra, ..t.all_used] {
-        if (reg_callee_saved_list.contains(r).not() && weak_eq(r, Ra).not()) {
-            continue;
-        }
         pre.push(Sd(r, { base: Sp, offset: offset }));
         post.push(Ld(r, { base: Sp, offset: offset }));
         offset += 8;
@@ -710,7 +711,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     let full_body = [
         ..pre,
-        ..body,
+        ..opt,
         ..post
     ];
     remove_unused(full_body);
@@ -758,6 +759,83 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
 
     t_clear();
     return arr;
+}
+
+// Removes useless instructions
+// If a register is written twice without any read in between, the first write can be ignored
+fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
+    fn defake(reg: Reg) -> Reg {
+        match reg {
+            Fake(name) => match t.regs[name] {
+                Some(w) => w
+                None => @util.die("Regalloc failed! \{reg}")
+            }
+            z => z
+        }
+    }
+
+    let last_read: Map[Reg, Int] = Map::new();
+    let last_written: Map[Reg, Int] = Map::new();
+    let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
+
+    fn store_write(key: Option[Reg], v: Int) -> Unit {
+        match key {
+            Some(Fake(_)) => ();
+            _ => return;
+        }
+
+        let ind = defake(key.unwrap());
+
+        if (last_written[ind].is_empty().not()) {
+            let wtime = last_written[ind].unwrap();
+
+            if (last_read.contains(ind).not() || wtime > last_read[ind].unwrap()) {
+                to_delete = to_delete.add(v);
+            }
+        }
+
+        last_written[ind] = v;
+    }
+    
+    fn store_read(key: Option[Reg], v: Int) -> Unit {
+        if (key.is_empty()) {
+            return;
+        }
+
+        let ind = defake(key.unwrap());
+        last_read[ind] = v;
+    }
+
+    for i = 0; i < body.length(); i = i + 1 {
+        let asm = body[i];
+
+        // Must clear for jumps
+        // (No need to clear for function calls because all registers are preserved)
+        match asm {
+            J(_) | Bne(_) | Beq(_) | Bgt(_) | Bge(_) | Bgeu(_) | Ble(_) | Blt(_) | Bltu(_) => {
+                last_read.clear();
+                last_written.clear();
+            }
+            _ => ()
+        }
+
+        let used = reg_used(asm);
+        store_read(used.rs1, i);
+        store_read(used.rs2, i);
+        store_write(used.rd, i);
+    }
+
+    let opt = [];
+    for i = 0; i < body.length(); i = i + 1 {
+        if (to_delete.contains(i)) {
+            println("Deleted \{body[i]} at place \{i}")
+            continue;
+        }
+
+        opt.push(body[i]);
+    }
+
+    return opt;
 }
 
 pub struct AssemblyFunction {

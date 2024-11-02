@@ -99,7 +99,7 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
         }
         Neg(a, ~kind = _) as n => {
             let t = infer(a, env);
-            match t {
+            match real(t) {
                 Double => {
                     n.kind = Some(Double);
                     Double

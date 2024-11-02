@@ -1,8 +1,25 @@
+pub fn used_external(name: String) -> Bool {
+    for x in @knf.e.used_names {
+        if (x.name == Some(name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 fn int_f(logger: Logger, name: String) -> Unit {
+    if (used_external(name).not()) {
+        return;
+    }
+
     logger.write_string("\{name}:\n    j minimbt_\{name}\n\n");
 }
 
 fn double_f(logger: Logger, name: String) -> Unit {
+    if (used_external(name).not()) {
+        return;
+    }
+
     logger.write_string("\{name}:\n");
     logger.write_string("    addi sp, sp, -16\n");
     logger.write_string("    sd ra, 0(sp)\n");
@@ -28,25 +45,28 @@ pub fn print_functions(asm : Array[AssemblyFunction]) -> String {
 
     // These three are different
     // truncate is the same as int_of_float
-    logger.write_string("int_of_float:\n");
-    logger.write_string("truncate:\n");
-    logger.write_string("    addi sp, sp, -16\n");
-    logger.write_string("    sd ra, 0(sp)\n");
-    logger.write_string("    fmv.d.x fa0, a0\n");
-    logger.write_string("    call minimbt_int_of_float\n");
-    logger.write_string("    ld ra, 0(sp)\n");
-    logger.write_string("    addi sp, sp, 16\n");
-    logger.write_string("    ret\n\n");
+    if (used_external("int_of_float") || used_external("truncate")) {
+        logger.write_string("int_of_float:\n");
+        logger.write_string("truncate:\n");
+        logger.write_string("    addi sp, sp, -16\n");
+        logger.write_string("    sd ra, 0(sp)\n");
+        logger.write_string("    fmv.d.x fa0, a0\n");
+        logger.write_string("    call minimbt_int_of_float\n");
+        logger.write_string("    ld ra, 0(sp)\n");
+        logger.write_string("    addi sp, sp, 16\n");
+        logger.write_string("    ret\n\n");
+    }
 
-    
-    logger.write_string("float_of_int:\n");
-    logger.write_string("    addi sp, sp, -16\n");
-    logger.write_string("    sd ra, 0(sp)\n");
-    logger.write_string("    call minimbt_float_of_int\n");
-    logger.write_string("    fmv.x.d a0, fa0\n");
-    logger.write_string("    ld ra, 0(sp)\n");
-    logger.write_string("    addi sp, sp, 16\n");
-    logger.write_string("    ret\n\n");
+    if (used_external("float_of_int")) {
+        logger.write_string("float_of_int:\n");
+        logger.write_string("    addi sp, sp, -16\n");
+        logger.write_string("    sd ra, 0(sp)\n");
+        logger.write_string("    call minimbt_float_of_int\n");
+        logger.write_string("    fmv.x.d a0, fa0\n");
+        logger.write_string("    ld ra, 0(sp)\n");
+        logger.write_string("    addi sp, sp, 16\n");
+        logger.write_string("    ret\n\n");
+    }
 
     for f in asm {
         f.output(logger)
