@@ -1,5 +1,5 @@
 // All external functions that runtime provides
-let externs: Array[String] =
+pub let externs: Array[String] =
     ["print_int", "print_endline", "truncate", "print_char",
     "read_int", "read_char", "int_of_float", "float_of_int",
     "sin", "cos", "atan", "sqrt", "abs_float", "floor"];
@@ -627,24 +627,24 @@ pub fn emit_global(logger: Logger) -> Unit {
     }
 }
 
-// Entry point of program
-fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
-    asm.clear();
-
-    fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
-        match expr {
-            Let((a, t), val, w) => {
-                // The final command of body will be a call to main()
-                // So instead of making it a closure (in tidy())
-                // we will directly compile it into a call
-                match val {
-                    Var({ name: Some("main"), .. }) => Unit
-                    _ => Let((a, t), val, eliminate_main_call(w))
-                }
+pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
+    match expr {
+        Let((a, t), val, w) => {
+            // The final command of body will be a call to main()
+            // So instead of making it a closure (in tidy())
+            // we will directly compile it into a call
+            match val {
+                Var({ name: Some("main"), .. }) => Unit
+                _ => Let((a, t), val, eliminate_main_call(w))
             }
-            _ => @util.die("Unexpected global \{expr}");
         }
+        _ => @util.die("Unexpected global \{expr}");
     }
+}
+
+// Entry point of program
+pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
+    asm.clear();
 
     @closure.FuncDef :: {
         name: "minimbt_main",

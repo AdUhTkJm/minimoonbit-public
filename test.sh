@@ -1,7 +1,7 @@
 #!/bin/bash
 
 rm t.s t.exe
-moon run src/bin/main.mbt test/longer-cases/$1.mbt -- -o t.s
+moon run src/bin/main.mbt test/test_src/$1.mbt -- -o t.s
 if [ $? -ne 0 ]; then
     exit 1
 fi

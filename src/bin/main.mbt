@@ -109,7 +109,7 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             self.closure_ir = Some(closure_ir)
         }
         Asm => {
-            if (js.val.not()) {
+            if (js.val.not() && wasm.val.not()) {
                 let real_asm = @riscv.emit(self.closure_ir.unwrap())
                 self.asm = Some(real_asm)
             }
@@ -141,6 +141,8 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
             Asm => self.closure_ir.unwrap().to_string()
             Finished => if (js.val) {
                 @js.emit(self.ast.unwrap())
+            } else if (wasm.val) {
+                @wasm.process(self.closure_ir.unwrap());
             } else {
                 @riscv.print_functions(self.asm.unwrap())
             }
@@ -149,6 +151,7 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
 }
 
 let js: Ref[Bool] = Ref::new(false);
+let wasm: Ref[Bool] = Ref::new(false);
 
 fn main {
     let argv = @env.get_args()
@@ -211,6 +214,12 @@ fn main {
                 "",
                 @ArgParser.Set(js),
                 "Run with JS backend",
+            ),
+            (
+                "--wasm",
+                "",
+                @ArgParser.Set(wasm),
+                "Run with WASM backend",
             ),
             (
                 "--out-file",

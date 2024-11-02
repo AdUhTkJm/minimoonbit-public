@@ -3,6 +3,8 @@ typealias Set = @immut/hashset.T[@knf.Name]
 
 // All global variables and functions
 pub let glob: Ref[Set] = Ref::new(Set::new());
+// GLobal variables only
+pub let globvar: Ref[Set] = Ref::new(Set::new());
 
 
 fn union(a: Set, b: Set) -> Set {
@@ -17,6 +19,16 @@ fn globals(e: @knf.Knf) -> Set {
     match e {
         Let((a, _), _, c) => union(Set::from_array([a]), globals(c))
         LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
+        LetTuple(arr, _, w) => union(Set::from_array(arr.map(fn (x) { x.0 })), globals(w))
+        _ => Set::new();
+    }
+}
+
+fn global_vars(e: @knf.Knf) -> Set {
+    match e {
+        Let((a, _), _, c) => union(Set::from_array([a]), global_vars(c))
+        LetRec(_, w) => global_vars(w)
+        LetTuple(arr, _, w) => union(Set::from_array(arr.map(fn (x) { x.0 })), global_vars(w))
         _ => Set::new();
     }
 }
@@ -51,8 +63,6 @@ fn captured(e: @knf.Knf) -> Set {
         Let((x, _), val, w) => {
             union(captured(val), captured(w)).remove(x)
         }
-        // LetRec is special; we don't want to process more,
-        // since this is already a self-contained function
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut z = union(captured(w), captured(syn));
             for y in args {
@@ -123,7 +133,7 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Apply(f, args) => Call(f, args)
         
         LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
-            let mut caps = captured(syn);
+            let mut caps = captured(syn).remove(f_name);
             for x in args {
                 caps = caps.remove(x.0);
             }
@@ -149,6 +159,7 @@ pub fn convert(knf: @knf.Knf) -> Expr {
 
 pub fn closure(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
+    globvar.val = global_vars(prog);
     let body = convert(prog);
     return Program::{ fundefs: funcs, body: body };
 }
