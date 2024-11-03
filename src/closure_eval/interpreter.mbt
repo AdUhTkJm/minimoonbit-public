@@ -218,7 +218,7 @@ pub fn ClosureInterpreter::eval(
                 _ => fail!("type mismatch, ifle expects Int or Double")
             }
         }
-        Let((x, _), e1, e2) => {
+        Let(x, e1, e2) => {
             let v = self.eval!(e1)
             self.env = self.env.add(x, v)
             self.eval!(e2)
@@ -231,7 +231,7 @@ pub fn ClosureInterpreter::eval(
             let ext_fn = self.extern_fns.get(l._).or_error!(Failure("function \{l} is not external"));
             ext_fn(args)
         }
-        Call(n, xs) => {
+        Call(n, xs) | CallTailRec(n, xs) => {
             let args = [];
             for x in xs {
                 args.push(self.find!(x));
@@ -258,7 +258,7 @@ pub fn ClosureInterpreter::eval(
                         fail!("tuple size mismatch")
                     }
                     for i = 0; i < len; i = i + 1 {
-                        let (x, _) = xts[i]
+                        let x = xts[i]
                         new_env = new_env.add(x, vs[i])
                     }
                 }
@@ -292,7 +292,7 @@ pub fn ClosureInterpreter::eval(
 pub fn ClosureInterpreter::eval_fn(self: ClosureInterpreter, copied: Array[Value], func: @closure.FuncDef, args: Array[Value]) -> Value!Failure {
     let mut env = self.env;
     for i = 0; i < func.args.length(); i = i + 1 {
-        let (x, _) = func.args[i]
+        let x = func.args[i]
         env = env.add(x, args[i])
     }
     for i = 0; i < func.captured.length(); i = i + 1 {

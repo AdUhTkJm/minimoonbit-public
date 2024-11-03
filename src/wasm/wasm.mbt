@@ -89,7 +89,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
         Var(a) | FVar(a) =>
             // This is a global variable
             var(a)
-        Let((a, _), val, w) => {
+        Let(a, val, w) => {
             let mut is_fn = false;
             
             asm.push(DeclareLocal(a));
@@ -243,7 +243,8 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             asm.push(DirectOutput("(if (then \{block_if}\n\{LocalSet(r, _if)}) (else \{block_else}\n\{LocalSet(r, _else)}))"))
             Var(r);
         }
-        Call(name, args) => {
+        // No tail call optimization since we cannot easily jump
+        Call(name, args) | CallTailRec(name, args) => {
             let mem = e.fake();
 
             // Load the closure
@@ -276,8 +277,8 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
         }
         LetTuple(x, arr, w) => {
             ignore(x.mapi(fn (i, z) {
-                asm.push(DeclareLocal(z.0));
-                asm.push(LocalSet(z.0, Memget(i * 4, Var(arr))));
+                asm.push(DeclareLocal(z));
+                asm.push(LocalSet(z, Memget(i * 4, Var(arr))));
             }));
             emit_expr(w);
         }
@@ -353,14 +354,14 @@ fn emit_fn(func: @closure.FuncDef) -> String {
 
     // This is to make sure return value is checked;
     // so if it is a function than we will still return legal closure
-    let _ = emit_expr(Let((ret, @closure.LowType::Unit), func.body, Var(ret)));
+    let _ = emit_expr(Let(ret, func.body, Var(ret)));
     let name = name_fn(func);
 
     // Load arguments
     let load: Array[Wasm] = [];
     ignore(func.args.mapi(fn (i, x) {
-        load.push(DeclareLocal(x.0));
-        load.push(LocalSet(x.0, Memget(i * 4, DirectOutput("(local.get $args)"))));
+        load.push(DeclareLocal(x));
+        load.push(LocalSet(x, Memget(i * 4, DirectOutput("(local.get $args)"))));
     }));
     ignore(func.captured.mapi(fn (i, x) {
         load.push(DeclareLocal(x));
@@ -393,7 +394,7 @@ fn emit_main(body: @closure.Expr) -> String {
 
     fn do_emit(expr: @closure.Expr) {
         match expr {
-            Let((a, _), val, w) => {
+            Let(a, val, w) => {
                 let r = emit_expr(val);
                 asm.push(DirectOutput("(global.set $\{a} \{r})"));
                 do_emit(w);
@@ -401,7 +402,7 @@ fn emit_main(body: @closure.Expr) -> String {
             _ => ()
         }
     }
-    do_emit(@riscv.eliminate_main_call(body));
+    do_emit(body);
     let tidied = tidy(asm);
     let result = tidied.map(fn (x) { x.to_string() }).join("\n");
     return "(func $minimbt_main \{result} (call $main) (return))\n";

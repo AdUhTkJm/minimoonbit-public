@@ -425,14 +425,14 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Label(end));
             r;
         }
-        Let((a, _), val, w) => {
+        Let(a, val, w) => {
             let rv = emit_expr(val);
             asm.push(Mv(Fake(a), rv));
             emit_expr(w);
         }
         LetTuple(arr, val, w) => {
             ignore(arr.mapi(fn (i, x) {
-                asm.push(Ld(Fake(x.0), { base: Fake(val), offset: i * 8 }));
+                asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
             }));
             emit_expr(w);
         }
@@ -466,6 +466,22 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             
             // Do the call
             asm.push(Jalr(func));
+            A0
+        }
+        // Call a tail recursive function
+        CallTailRec(name, args) => {
+            // No need to load a closure again
+            // Just do the call
+            ignore(args.mapi(fn (i, x) {
+            //    asm.push(Mv(Arg(i), Fake(x)));
+            }));
+
+            // The function we are referring to
+            let f = match @knf.delete_refer(@knf.e.value[name].unwrap()) {
+                Fun(x) => x
+                _ => @util.die("Misbehaved tail recursion; check optimization.mbt")
+            }
+            asm.push(J("\{f}_tailrec"));
             A0
         }
         ExternalArray(_) => @util.die("External array not supported")
@@ -627,21 +643,6 @@ pub fn emit_global(logger: Logger) -> Unit {
     }
 }
 
-pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
-    match expr {
-        Let((a, t), val, w) => {
-            // The final command of body will be a call to main()
-            // So instead of making it a closure (in tidy())
-            // we will directly compile it into a call
-            match val {
-                Var({ name: Some("main"), .. }) => Unit
-                _ => Let((a, t), val, eliminate_main_call(w))
-            }
-        }
-        _ => @util.die("Unexpected global \{expr}");
-    }
-}
-
 // Entry point of program
 pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
     asm.clear();
@@ -650,10 +651,9 @@ pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
         name: "minimbt_main",
         old_name: @typing.Name:: { name: Some("minimbt_main"), slot: -1 },
         is_closure: false,
-        ty: @closure.LowType::Fun([], @closure.LowType::Unit),
         args: [],
         captured: [],
-        body: eliminate_main_call(body)
+        body: body
     }
 }
 
@@ -666,7 +666,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Load arguments
     let load_arg: Array[RvAsm] = [];
     ignore(fun.args.mapi(fn (i, x) {
-        load_arg.push(Mv(Fake(x.0), Arg(i)));
+        load_arg.push(Mv(Fake(x), Arg(i)));
     }));
 
     // Load environment (if this is a closure)
@@ -677,6 +677,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
 
     let pseudobody = [
+        RvAsm::Label("\{fun.old_name}_tailrec"),
         ..load_arg,
         ..asm,
         Mv(A0, ret),
@@ -776,6 +777,7 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let last_read: Map[Reg, Int] = Map::new();
     let last_written: Map[Reg, Int] = Map::new();
+    let mut used_labels: @immut/hashset.T[Label] = @immut/hashset.T::new();
     let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
 
     fn store_write(key: Option[Reg], v: Int) -> Unit {
@@ -790,7 +792,7 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
             let wtime = last_written[ind].unwrap();
 
             if (last_read.contains(ind).not() || wtime > last_read[ind].unwrap()) {
-                to_delete = to_delete.add(v);
+                to_delete = to_delete.add(wtime);
             }
         }
 
@@ -812,9 +814,13 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
         // Must clear for jumps
         // (No need to clear for function calls because all registers are preserved)
         match asm {
-            J(_) | Bne(_) | Beq(_) | Bgt(_) | Bge(_) | Bgeu(_) | Ble(_) | Blt(_) | Bltu(_) => {
+            J(label) | Bne(_, _, label) | Bgt(_, _, label) => {
+                used_labels = used_labels.add(label);
                 last_read.clear();
                 last_written.clear();
+            }
+            La(_, label) => {
+                used_labels = used_labels.add(label);
             }
             _ => ()
         }
@@ -828,11 +834,16 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
     let opt = [];
     for i = 0; i < body.length(); i = i + 1 {
         if (to_delete.contains(i)) {
-            println("Deleted \{body[i]} at place \{i}")
+            println("Delete \{body[i]}")
             continue;
         }
 
-        opt.push(body[i]);
+        match body[i] {
+            Label(x) as label => if (used_labels.contains(x)) {
+                opt.push(label);
+            }
+            t => opt.push(t);
+        }
     }
 
     return opt;

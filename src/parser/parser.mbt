@@ -429,7 +429,7 @@ fn toplevel() -> @types.Syntax {
     }
 
     if (n == EOF) {
-        return App(Var("main"), []);
+        return Unit;
     }
 
     @util.die("Unexpected token at toplevel: \{n}");

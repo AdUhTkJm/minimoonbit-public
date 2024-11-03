@@ -20,24 +20,21 @@ pub fn Knf::to_json(self : Knf) -> Json {
       ["IfEq", n1.to_json(), n2.to_json(), k1.to_json(), k2.to_json()]
     IfLe(n1, n2, k1, k2) =>
       ["IfLe", n1.to_json(), n2.to_json(), k1.to_json(), k2.to_json()]
-    Let((n, t), k1, k2) =>
-      ["Let", [n.to_json(), t.to_json()], k1.to_json(), k2.to_json()]
+    Let(n, k1, k2) =>
+      ["Let", n.to_json(), k1.to_json(), k2.to_json()]
     Var(n) => ["Var", n.to_json()]
-    FVar(n) => ["FVar", n.to_json()]
     LetRec(f, k) => ["LetRec", f.to_json(), k.to_json()]
-    Apply(n, ns) => ["Apply", n.to_json(), ns.to_json()]
+    Apply(n, ns) | CallTailRec(n, ns) => ["Apply", n.to_json(), ns.to_json()]
     Tuple(ns) => ["Tuple", ns.to_json()]
     LetTuple(n_ts, n, k) => {
       let n_ts_res = []
       for it in n_ts {
-        let (n, t) = it
-        n_ts_res.push([n.to_json(), t.to_json()])
+        n_ts_res.push([it.to_json()])
       }
       ["LetTuple", n_ts_res.to_json(), n.to_json(), k.to_json()]
     }
     Get(n1, n2) => ["Get", n1.to_json(), n2.to_json()]
     Put(n1, n2, n3) => ["Put", n1.to_json(), n2.to_json(), n3.to_json()]
-    ExternalArray(n) => ["ExternalArray", n.to_json()]
     ExternalFunctionApplication(s, ns) =>
       ["ExternalFunctionApplication", s.to_json(), ns.to_json()]
   }
@@ -81,9 +78,9 @@ pub fn Knf::from_json(json : Json) -> Knf! {
         Knf::from_json!(k1),
         Knf::from_json!(k2),
       )
-    ["Let", [n, t], k1, k2] =>
+    ["Let", n, k1, k2] =>
       Let(
-        (Name::from_json!(n), Type::from_json!(t)),
+        Name::from_json!(n),
         Knf::from_json!(k1),
         Knf::from_json!(k2),
       )
@@ -100,8 +97,7 @@ pub fn Knf::from_json(json : Json) -> Knf! {
       let n_ts_res = []
       for it in n_ts {
         match it {
-          [n, t] => n_ts_res.push((Name::from_json!(n), Type::from_json!(t)))
-          _ => fail!("Knf::from_json: invalid json: \{json}")
+          n => n_ts_res.push(Name::from_json!(n))
         }
       }
       LetTuple(n_ts_res, Name::from_json!(n), Knf::from_json!(k))
@@ -109,7 +105,6 @@ pub fn Knf::from_json(json : Json) -> Knf! {
     ["Get", n1, n2] => Get(Name::from_json!(n1), Name::from_json!(n2))
     ["Put", n1, n2, n3] =>
       Put(Name::from_json!(n1), Name::from_json!(n2), Name::from_json!(n3))
-    ["ExternalArray", n] => ExternalArray(Name::from_json!(n))
     ["ExternalFunctionApplication", String(s), Array(ns)] => {
       let rns = []
       for it in ns {
@@ -127,8 +122,7 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
       let rargs = []
       for it in args {
         match it {
-          [n, t] => rargs.push((Name::from_json!(n), Type::from_json!(t)))
-          _ => fail!("FuncDef::from_json: invalid json: \{json}")
+          n => rargs.push(Name::from_json!(n))
         }
       }
       {

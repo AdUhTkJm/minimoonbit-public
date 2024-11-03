@@ -66,14 +66,8 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
 
 let eglob: Map[String, @types.Type] = Map::new();
 
-pub let typing: Map[@types.Syntax, @types.Type] = Map::new();
-
-pub fn lookup(ast: @types.Syntax) -> @types.Type {
-    return real(typing[ast].unwrap());
-}
-
 pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~global: Bool = false) -> @types.Type {
-    let z: @types.Type = match ast {
+    match ast {
         Int(_) => Int
         Double(_) => Double
         Bool(_) => Bool
@@ -128,11 +122,12 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             if (global) {
                 eglob[f_name] = ty;
             }
-            let mut env_new = env.add(f_name, ty);
+            let env_new = env.add(f_name, ty);
+            let mut env_local = env_new;
             for z in args {
-                env_new = env_new.add(z.0, z.1);
+                env_local = env_local.add(z.0, z.1);
             }
-            unify(ty, Fun(args.map(fn (z) { z.1; }), infer(syn, env_new)));
+            unify(ty, Fun(args.map(fn (z) { z.1; }), infer(syn, env_local)));
             infer(w, env_new, ~global = global);
         }
         Let((name, ty), s1, s2) => {
@@ -192,8 +187,6 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             Var(Ref::new(None))
         }
     }
-    typing[ast] = z;
-    z;
 }
 
 fn resolve(ty: @types.Type) -> @types.Type {
@@ -204,6 +197,86 @@ fn resolve(ty: @types.Type) -> @types.Type {
         Tuple(arr) => Tuple(arr.map(resolve))
         Array(ty) => Array(resolve(ty))
         z => z
+    }
+}
+
+fn add_name(names: @immut/hashmap.T[String, String], x: String) -> @immut/hashmap.T[String, String] {
+    return if (names.find(x).is_empty()) {
+        names.add(x, x);
+    } else {
+        names.add(x, "\{x}_");
+    }
+}
+
+// Rename variables so that there are no conflicts.
+fn deconflict(ast: @types.Syntax, names: @immut/hashmap.T[String, String]) -> @types.Syntax {
+    match ast {
+        LetRec({ name: (f_name, ty), body: syn, args: args }, w) => {
+            let env = add_name(names, f_name);
+            let mut local = env;
+            for x in args {
+                local = add_name(local, x.0);
+            }
+            LetRec({
+                name: (env[f_name].unwrap(), ty),
+                body: deconflict(syn, local),
+                args: args.map(fn (x) { (local[x.0].unwrap(), x.1) }),
+            }, deconflict(w, env));
+        }
+
+        Let((a, t), val, w) => {
+            let env = add_name(names, a);
+            Let((env[a].unwrap(), t), deconflict(val, names), deconflict(w, env));
+        }
+
+        LetTuple(arr, x, w) => {
+            let mut env = names;
+            for x in arr {
+                env = add_name(env, x.0);
+            }
+            LetTuple(arr.map(fn (x) { (env[x.0].unwrap(), x.1) }), deconflict(x, names), deconflict(w, env));
+        }
+
+        If(cond, body, otherwise) =>
+            If(deconflict(cond, names), deconflict(body, names), deconflict(otherwise, names));
+
+        Prim(a, b, op, ~kind = c) =>
+            Prim(deconflict(a, names), deconflict(b, names), op, ~kind = c);
+
+        Eq(a, b) =>
+            Eq(deconflict(a, names), deconflict(b, names))
+
+        Le(a, b) =>
+            Le(deconflict(a, names), deconflict(b, names))
+
+        Get(a, b) =>
+            Get(deconflict(a, names), deconflict(b, names))
+
+        Put(a, b, x) =>
+            Put(deconflict(a, names), deconflict(b, names), deconflict(x, names))
+
+        ApplyExtern(name, args) =>
+            ApplyExtern(name, args.map(fn (x) { deconflict(x, names) }))
+
+        App(f, args) =>
+            App(deconflict(f, names), args.map(fn (x) { deconflict(x, names) }))
+        
+        Neg(a, ~kind = c) =>
+            Neg(deconflict(a, names), ~kind = c);
+
+        Not(a) =>
+            Not(deconflict(a, names));
+
+        Var(w) =>
+            Var(names[w].unwrap());
+
+        Tuple(arr) =>
+            Tuple(arr.map(fn (x) { deconflict(x, names) }))
+
+        Array(len, elem) =>
+            Array(deconflict(len, names), deconflict(elem, names))
+
+        t => t
     }
 }
 
@@ -220,6 +293,7 @@ pub fn typed(ast: @types.Syntax) -> @types.Syntax {
 }
 
 pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {
-    unify(infer(ast, @immut/hashmap.T::new(), ~global = true), Unit);
-    return typed(ast);
+    let d = deconflict(ast, @immut/hashmap.T::new());
+    unify(infer(d, @immut/hashmap.T::new(), ~global = true), Unit);
+    return typed(d);
 }

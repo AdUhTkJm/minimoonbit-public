@@ -17,8 +17,8 @@ pub fn Expr::to_json(self : Expr) -> Json {
             ["IfEq", n1.to_json(), n2.to_json(), e1.to_json(), e2.to_json()]
         Expr::IfLe(n1, n2, e1, e2) =>
             ["IfLe", n1.to_json(), n2.to_json(), e1.to_json(), e2.to_json()]
-        Expr::Let((n, t), e1, e2) =>
-            ["Let", [n.to_json(), t.to_json()], e1.to_json(), e2.to_json()]
+        Expr::Let(n, e1, e2) =>
+            ["Let", n.to_json(), e1.to_json(), e2.to_json()]
         Expr::Var(n) => ["Var", n.to_json()]
         Expr::Call(n, ns) => ["Call", n.to_json(), ns.to_json()]
         Expr::CallExternal(l, ns) => ["CallExternal", l._.to_json(), ns.to_json()]
@@ -26,8 +26,7 @@ pub fn Expr::to_json(self : Expr) -> Json {
         Expr::LetTuple(n_ts, n, e) => {
             let n_ts_res = []
             for it in n_ts {
-                let (n, t) = it
-                n_ts_res.push([n.to_json(), t.to_json()])
+                n_ts_res.push(it.to_json())
             }
             ["LetTuple", n_ts_res.to_json(), n.to_json(), e.to_json()]
         }
@@ -70,7 +69,7 @@ pub fn Expr::from_json(json : Json) -> Expr! {
             )
         ["Let", [n, t], e1, e2] =>
             Expr::Let(
-                (Name::from_json!(n), LowType::from_json!(t)),
+                (Name::from_json!(n)),
                 Expr::from_json!(e1),
                 Expr::from_json!(e2),
             )
@@ -100,7 +99,7 @@ pub fn Expr::from_json(json : Json) -> Expr! {
             let n_ts_res = []
             for it in n_ts {
                 match it {
-                    [n, t] => n_ts_res.push((Name::from_json!(n), LowType::from_json!(t)))
+                    n => n_ts_res.push(Name::from_json!(n))
                     _ => fail!("invalid json")
                 }
             }
@@ -183,12 +182,10 @@ pub fn FuncDef::to_json(self : FuncDef) -> Json {
         "name": self.name._.to_json(),
         "old_name": self.old_name.to_json(),
         "is_closure": self.is_closure.to_json(),
-        "ty": self.ty.to_json(),
         "args": {
             let res = []
             for nt in self.args {
-                let (n, t) = nt
-                res.push(Json::Array([n.to_json(), t.to_json()]))
+                res.push(Json::Array([nt.to_json()]))
             }
             Array(res)
         },
@@ -218,8 +215,7 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
             let args_res = []
             for nt in args {
                 match nt {
-                    [n, t] => args_res.push((Name::from_json!(n), LowType::from_json!(t)))
-                    _ => fail!("invalid json")
+                    n => args_res.push(Name::from_json!(n))
                 }
             }
             let formal_free_vars_res = []
@@ -236,7 +232,6 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
                 name: Label(name),
                 old_name: Name::from_json!(n),
                 is_closure: @json.from_json!(b),
-                ty: LowType::from_json!(t),
                 args: args_res,
                 captured: formal_free_vars_res,
                 body: Expr::from_json!(body),

@@ -17,18 +17,18 @@ fn union(a: Set, b: Set) -> Set {
 
 fn globals(e: @knf.Knf) -> Set {
     match e {
-        Let((a, _), _, c) => union(Set::from_array([a]), globals(c))
+        Let(a, _, c) => union(Set::from_array([a]), globals(c))
         LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
-        LetTuple(arr, _, w) => union(Set::from_array(arr.map(fn (x) { x.0 })), globals(w))
+        LetTuple(arr, _, w) => union(Set::from_array(arr), globals(w))
         _ => Set::new();
     }
 }
 
 fn global_vars(e: @knf.Knf) -> Set {
     match e {
-        Let((a, _), _, c) => union(Set::from_array([a]), global_vars(c))
+        Let(a, _, c) => union(Set::from_array([a]), global_vars(c))
         LetRec(_, w) => global_vars(w)
-        LetTuple(arr, _, w) => union(Set::from_array(arr.map(fn (x) { x.0 })), global_vars(w))
+        LetTuple(arr, _, w) => union(Set::from_array(arr), global_vars(w))
         _ => Set::new();
     }
 }
@@ -45,12 +45,11 @@ fn captured(e: @knf.Knf) -> Set {
         Eq(a, b) | Le(a, b) | Get(a, b) => 
             Set::from_array([a, b])
 
-        Neg(a) | BNeg(a) | FNeg(a) | Var(a) | FVar(a) => 
+        Neg(a) | BNeg(a) | FNeg(a) | Var(a) => 
             Set::from_array([a])
 
-        ExternalArray(_) => @util.die("External array not supported")
         ExternalFunctionApplication(_, args) => Set::from_array(args)
-        Apply(f, args) => Set::from_array([f, ..args])
+        Apply(f, args) | CallTailRec(f, args) => Set::from_array([f, ..args])
         Tuple(arr) => Set::from_array(arr)
 
         IfEq(a, b, l, r) | IfLe(a, b, l, r) => {
@@ -60,37 +59,23 @@ fn captured(e: @knf.Knf) -> Set {
         }
 
 
-        Let((x, _), val, w) => {
+        Let(x, val, w) => {
             union(captured(val), captured(w)).remove(x)
         }
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut z = union(captured(w), captured(syn));
             for y in args {
-                z = z.remove(y.0);
+                z = z.remove(y);
             }
             z.remove(f_name);
         }
         LetTuple(arr, n, w) => {
             let mut z = captured(w).add(n);
             for y in arr {
-                z = z.remove(y.0);
+                z = z.remove(y);
             }
             z;
         }
-    }
-}
-
-pub fn lowtype(x: @types.Type) -> LowType {
-    match @typing.real(x) {
-        Int => Int
-        Double => Double
-        Unit => Unit
-        Bool => Int
-        Tuple(x) => Tuple(x.map(lowtype))
-        Array(x) => Array(lowtype(x))
-        Ptr => Ptr
-        Fun(args, ret) => Fun(args.map(lowtype), lowtype(ret))
-        _ => @util.die("Can't appear here: \{x}");
     }
 }
 
@@ -112,7 +97,6 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Eq(a, b) => Eq(a, b)
         Le(a, b) => Le(a, b)
         Var(x) => Var(x)
-        FVar(x) => FVar(x)
         Neg(a) => Neg(a)
         FNeg(a) => FNeg(a)
         BNeg(a) => BNeg(a)
@@ -120,35 +104,33 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         Put(x, inner, v) => ArrayPut(x, inner, v)
         Get(x, inner) => ArrayGet(x, inner)
 
-        ExternalArray(_) => @util.die("External array is not supported")
         ExternalFunctionApplication(name, args) => CallExternal(name, args)
 
-        Let((name, ty), b, c) => Let((name, lowtype(ty)), convert(b), convert(c))
+        Let(name, b, c) => Let(name, convert(b), convert(c))
 
         IfEq(a, b, c, d) => IfEq(a, b, convert(c), convert(d))
         IfLe(a, b, c, d) => IfLe(a, b, convert(c), convert(d))
 
-        LetTuple(arr, val, w) => LetTuple(arr.map(fn (z) { (z.0, lowtype(z.1)) }), val, convert(w))
+        LetTuple(arr, val, w) => LetTuple(arr, val, convert(w))
 
         Apply(f, args) => Call(f, args)
+        CallTailRec(f, args) => CallTailRec(f, args)
         
-        LetRec({ name: f_name, ty: ty, args: args, body: syn }, w) => {
+        LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut caps = captured(syn).remove(f_name);
             for x in args {
-                caps = caps.remove(x.0);
+                caps = caps.remove(x);
             }
             for x in glob.val {
                 caps = caps.remove(x);
             }
             let cap = Array::from_iter(caps.iter());
-            let lowty = lowtype(ty);
             funcs.push(FuncDef :: {
                 name: f_name.name.unwrap(),
                 old_name: f_name,
                 is_closure: cap.length() != 0,
-                ty: lowty,
-                args: args.map(fn (z) { (z.0, lowtype(z.1)) }),
-                captured: cap.map(fn (z) { z }),
+                args: args,
+                captured: cap,
                 body: convert(syn),
             });
             convert(w)

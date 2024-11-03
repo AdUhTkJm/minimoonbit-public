@@ -63,7 +63,7 @@ pub fn KnfInterpreter::eval(
     Unit => Unit
     Int(i) => Int(i)
     Double(d) => Double(d)
-    Var(v) | FVar(v) => find!(env, v)
+    Var(v) => find!(env, v)
     Neg(x) => {
       let x = find!(env, x)
       match x {
@@ -206,7 +206,7 @@ pub fn KnfInterpreter::eval(
         _ => fail!("type mismatch, ifle expects Int or Double")
       }
     }
-    Let((x, _), e1, e2) => {
+    Let(x, e1, e2) => {
       let v = self.eval!(env, e1)
       let new_env = env.add(x, v)
       self.eval!(new_env, e2)
@@ -217,13 +217,13 @@ pub fn KnfInterpreter::eval(
       f_env.val = new_env
       self.eval!(new_env, e)
     }
-    Apply(f, xs) => {
+    Apply(f, xs) | CallTailRec(f, xs) => {
       let f = find!(env, f)
       match f {
         Closure(f, f_env) => {
           let mut new_env = f_env.val
           for i = 0; i < f.args.length(); i = i + 1 {
-            let (x, _) = f.args[i]
+            let x = f.args[i]
             new_env = new_env.add(x, find!(env, xs[i]))
           }
           self.eval!(new_env, f.body)
@@ -258,7 +258,7 @@ pub fn KnfInterpreter::eval(
             fail!("tuple size mismatch")
           }
           for i = 0; i < len; i = i + 1 {
-            let (x, _) = xts[i]
+            let x = xts[i]
             new_env = new_env.add(x, vs[i])
           }
         }
@@ -284,7 +284,6 @@ pub fn KnfInterpreter::eval(
       }
       Unit
     }
-    ExternalArray(_) => fail!("ExternalArray is not supported")
     ExternalFunctionApplication(name, args) => {
       let f = self.extern_fns
         .get(name)

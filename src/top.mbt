@@ -55,7 +55,7 @@ pub enum Type {
     Fun(Array[Type], Type) // (_, _, _) -> _
     Tuple(Array[Type]) // (_, _, _)
     Array(Type) // Array[_]
-    Var(Ref[Type?])
+    Var(Ref[Option[Type]])
     Ptr
 } derive(Show)
 
