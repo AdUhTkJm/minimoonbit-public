@@ -24,7 +24,7 @@ pub enum Constant {
     Unknown
 } derive(Show)
 
-fn Constant::op_equal(self: Constant, other: Constant) -> Bool {
+pub fn Constant::op_equal(self: Constant, other: Constant) -> Bool {
     match (self, other) {
         (Refer(x), a) | (a, Refer(x)) => match e.value[x] {
             Some(t) => t == a
@@ -70,7 +70,7 @@ pub fn delete_refer(x: Constant) -> Constant {
         t => t
     }
 }
-fn value_of(name: Name) -> Option[Constant] {
+pub fn value_of(name: Name) -> Option[Constant] {
     match e.value[name] {
         Some(x) => Some(delete_refer(x))
         None => None

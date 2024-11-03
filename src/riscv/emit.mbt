@@ -408,9 +408,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Li(A0, (8 * arr.length()).to_string()));
             asm.push(Call("minimbt_create_ptr_array"));
             // Put everything into the array
-            ignore(arr.mapi(fn (i, x) {
+            let _ = arr.mapi(fn (i, x) {
                 asm.push(Sd(Fake(x), { base: A0, offset: i * 8 }));
-            }));
+            });
             // Record the array address
             asm.push(Mv(r, A0));
             r;
@@ -468,32 +468,52 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             A0
         }
         Call(name, args) => {
-            ignore(args.mapi(fn (i, x) {
+            let _ = args.mapi(fn (i, x) {
                 asm.push(Mv(Arg(i), Fake(x)));
-            }));
+            });
 
-            // Remember:
-            // struct Closure { void* (*func)(void*); void* env; };
+            match @knf.value_of(name) {
+                Some(Unknown) | None => {
+                    // We don't know this function, have to call a closure for this
 
-            let env = fake();
-            let func = fake();
-            asm.push(Ld(func, { base: Fake(name), offset: 0 }));
-            asm.push(Ld(env, { base: Fake(name), offset: 8 }));
+                    // Remember:
+                    // struct Closure { void* (*func)(void*); void* env; };
+                    let env = fake();
+                    let func = fake();
+                    asm.push(Ld(func, { base: Fake(name), offset: 0 }));
+                    asm.push(Ld(env, { base: Fake(name), offset: 8 }));
 
-            // Also pass environment into function
-            asm.push(Mv(Arg(args.length()), env));
-            
-            // Do the call
-            asm.push(Jalr(func));
-            A0
+                    // Also pass environment into function
+                    asm.push(Mv(Arg(args.length()), env));
+                    
+                    // Do the call
+                    asm.push(Jalr(func));
+                    A0
+                }
+                Some(Fun(x)) => {
+                    let fi = t.funcs.search_by(fn (z) { z.old_name == x });
+                    let func = t.funcs[fi.unwrap()];
+                    if (func.is_closure) {
+                        // For closure, we still need to extract the environment
+                        let env = fake();
+                        asm.push(Ld(env, { base: Fake(name), offset: 8 }));
+                        asm.push(Mv(Arg(args.length()), env));
+                    }
+                    // Direct call, since we know what function this is
+                    asm.push(Call(name_fn(x)));
+                    A0
+                }
+                _ => @util.die("Internal error: calling non-function in emit_expr()")
+            }
         }
         // Call a tail recursive function
         CallTailRec(name, args) => {
             // No need to load a closure again
             // Just do the call
-            ignore(args.mapi(fn (i, x) {
+            let _ = args.mapi(fn (i, x) {
+                ignore(i); ignore(x);
             //    asm.push(Mv(Arg(i), Fake(x)));
-            }));
+            });
 
             // The function we are referring to
             let f = match @knf.delete_refer(@knf.e.value[name].unwrap()) {
@@ -514,6 +534,15 @@ fn weak_eq(a: Reg, b: Reg) -> Bool {
     }
 }
 
+// Returns the name of a function
+fn name_fn(f_name: @typing.Name) -> String {
+    if (externs.contains(f_name.name.unwrap())) {
+        f_name.name.unwrap()
+    } else {
+        f_name.to_string()
+    }
+}
+
 fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
     let result = [];
     let args: Array[(@typing.Name, Int)] = [];
@@ -523,11 +552,7 @@ fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
     // to_string() will differentiate all local functions with same name
     // But we don't want it for external functions
     // otherwise we will get print_int_2 rather than print_int
-    let name = if (externs.contains(f_name.name.unwrap())) {
-        f_name.name.unwrap()
-    } else {
-        f_name.to_string()
-    };
+    let name = name_fn(f_name);
     for z in f.captured {
         args.push((z, offset));
         offset += 8;
@@ -549,9 +574,9 @@ fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
         result.push(Mv(t, A0));
         
         // Copy environment to space at a0
-        ignore(args.mapi(fn (i, x) {
+        let _ = args.mapi(fn (i, x) {
             result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
-        }));
+        });
 
         // void* a0 = malloc(16);
         result.push(Li(A0, "16"));
@@ -620,7 +645,7 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     
         // If b is a function, we need to make it a closure
         let f_name = real(r);
-        
+
         if (find_func(f_name).is_empty().not()) {
             // Note that this can very much be "mv a0, b"
             // And we use a0 intensively, so have to take care
@@ -709,15 +734,15 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Load arguments
     let load_arg: Array[RvAsm] = [];
-    ignore(fun.args.mapi(fn (i, x) {
+    let _ = fun.args.mapi(fn (i, x) {
         load_arg.push(Mv(Fake(x), Arg(i)));
-    }));
+    });
 
     // Load environment (if this is a closure)
     let env = Arg(fun.args.length());
-    ignore(fun.captured.mapi(fn (i, x) {
+    let _ = fun.captured.mapi(fn (i, x) {
         load_arg.push(Ld(Fake(x), { base: env, offset: i * 8 }));
-    }));
+    });
 
 
     let pseudobody = [

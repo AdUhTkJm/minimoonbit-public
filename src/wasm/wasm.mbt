@@ -269,7 +269,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
         }
         MakeTuple(arr) => {
             let r = e.fake();
-            asm.push(LocalSet(r, DirectOutput("(call $minimbt_malloc (i32.const \{arr.length()}))")));
+            asm.push(LocalSet(r, DirectOutput("(call $minimbt_malloc (i32.const \{4 * arr.length()}))")));
             ignore(arr.mapi(fn (i, z) {
                 asm.push(Memset(i * 4, Var(r), var(z)));
             }));
