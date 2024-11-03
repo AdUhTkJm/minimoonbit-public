@@ -89,6 +89,7 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
     match self.curr_stage {
         Parse => {
             let source_code = self.source_code.unwrap()
+            println(@lex.lex(source_code));
             let parsed = @parser.parse(@lex.lex(source_code));
             let augmented = @parser.augment(parsed);
             self.ast = Some(augmented)
