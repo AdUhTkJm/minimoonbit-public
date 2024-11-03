@@ -267,6 +267,9 @@ fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
     }
 }
 
+// Despite its name, we will actually substitute for a call to init()
+// if init() is present
+// Because init() must be called earlier than main()
 pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
     match expr {
         Let(a, val, w) => {
@@ -275,6 +278,7 @@ pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
             // we will directly compile it into a call
             match val {
                 Var({ name: Some("main"), .. }) => Unit
+                    
                 _ => Let(a, val, eliminate_main_call(w))
             }
         }
@@ -510,16 +514,95 @@ fn weak_eq(a: Reg, b: Reg) -> Bool {
     }
 }
 
+fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
+    let result = [];
+    let args: Array[(@typing.Name, Int)] = [];
+    let mut offset = 0;
+    let f = find_func(f_name).unwrap();
+
+    // to_string() will differentiate all local functions with same name
+    // But we don't want it for external functions
+    // otherwise we will get print_int_2 rather than print_int
+    let name = if (externs.contains(f_name.name.unwrap())) {
+        f_name.name.unwrap()
+    } else {
+        f_name.to_string()
+    };
+    for z in f.captured {
+        args.push((z, offset));
+        offset += 8;
+    }
+
+    // Closure is compiled as:
+
+    // struct Closure { void* (*func)(void*); void* env;  };
+    // This has size 16
+
+    // We save a Closure* in register 'f_name',
+    // which currently holds a function pointer
+    if (args.length() != 0) {
+        let t = fake();
+
+        // void* a0 = malloc(env_size);
+        result.push(Li(A0, offset.to_string()));
+        result.push(Call("minimbt_malloc"));
+        result.push(Mv(t, A0));
+        
+        // Copy environment to space at a0
+        ignore(args.mapi(fn (i, x) {
+            result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
+        }));
+
+        // void* a0 = malloc(16);
+        result.push(Li(A0, "16"));
+        result.push(Call("minimbt_malloc"));
+
+        // Save Closure in memory
+        result.push(La(target, name));
+        result.push(Sd(target, { base: A0, offset: 0 }));
+        result.push(Sd(t, { base: A0, offset: 8 }));
+        result.push(Mv(target, A0));
+    } else {
+        // void* a0 = malloc(16);
+        result.push(Li(A0, "16"));
+        result.push(Call("minimbt_malloc"));
+
+        // Save Closure in memory, but ignore env part
+        result.push(La(target, name));
+        result.push(Sd(target, { base: A0, offset: 0 }));
+        result.push(Mv(target, A0));
+    }
+    return result;
+}
+
 // If referencing global things, make it correct
 pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     for i = 0; i < asm.length(); i = i + 1 {
     
     match asm[i] { Mv(a, b) => {
-        // If a is global, then this is initialization a of global variable
         let w = Some(a);
+        let r = Some(b);
+        
+        // If "a" is global, then this is initialization of a global variable
         if (is_fake(w) && @closure.glob.val.contains(real(w))) {
-            // We need to do "*a = b" instead of "a = b"
+            if (is_fake(r)) {
+                let f_name = real(r);
+
+                // We are loading a function into "a"
+                // Make it a closure
+                if (find_func(f_name).is_empty().not()) {
+                    let closure = fake();
+                    let temp = fake();
+                    result.append(make_closure(f_name, closure)); 
+                    result.push(La(temp, a.to_string()));
+                    result.push(Sd(closure, { base: temp, offset: 0 }));
+                    continue;
+                }
+            }
+
+            // We are loading a normal value
+            // We need to do "*a = b" instead of "a = b" for values
             let temp = fake();
             result.push(La(temp, a.to_string()));
             result.push(Sd(b, { base: temp, offset: 0 }));
@@ -527,77 +610,23 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         }
 
         // If b is just normal, then nothing to do
-        let r = Some(b);
         if (is_fake(r).not()) {
             result.push(asm[i]);
             continue;
         }
+        
 
-        // Now b can be something difficult to manage
+        // Now "a" is normal, but "b" can be something difficult to manage
     
-        // Note that this can very much be "mv a0, b"
-        // And we use a0 intensively, so have to take care
-        let target = if (weak_eq(a, A0)) { fake() } else { a };
-        let f_name = real(r);
-
         // If b is a function, we need to make it a closure
+        let f_name = real(r);
+        
         if (find_func(f_name).is_empty().not()) {
-            let args: Array[(@typing.Name, Int)] = [];
-            let mut offset = 0;
-            let f = find_func(f_name).unwrap();
+            // Note that this can very much be "mv a0, b"
+            // And we use a0 intensively, so have to take care
+            let target = if (weak_eq(a, A0)) { fake() } else { a };
 
-            // to_string() will differentiate all local functions with same name
-            // But we don't want it for external functions
-            // otherwise we will get print_int_2 rather than print_int
-            let name = if (externs.contains(f_name.name.unwrap())) {
-                f_name.name.unwrap()
-            } else {
-                f_name.to_string()
-            };
-            for z in f.captured {
-                args.push((z, offset));
-                offset += 8;
-            }
-
-            // Closure is compiled as:
-
-            // struct Closure { void* (*func)(void*); void* env;  };
-            // This has size 16
-
-            // We save a Closure* in register 'f_name',
-            // which currently holds a function pointer
-            if (args.length() != 0) {
-                let t = fake();
-
-                // void* a0 = malloc(env_size);
-                result.push(Li(A0, offset.to_string()));
-                result.push(Call("minimbt_malloc"));
-                result.push(Mv(t, A0));
-                
-                // Copy environment to space at a0
-                ignore(args.mapi(fn (i, x) {
-                    result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
-                }));
-
-                // void* a0 = malloc(16);
-                result.push(Li(A0, "16"));
-                result.push(Call("minimbt_malloc"));
-
-                // Save Closure in memory
-                result.push(La(target, name));
-                result.push(Sd(target, { base: A0, offset: 0 }));
-                result.push(Sd(t, { base: A0, offset: 8 }));
-                result.push(Mv(target, A0));
-            } else {
-                // void* a0 = malloc(16);
-                result.push(Li(A0, "16"));
-                result.push(Call("minimbt_malloc"));
-
-                // Save Closure in memory, but ignore env part
-                result.push(La(target, name));
-                result.push(Sd(target, { base: A0, offset: 0 }));
-                result.push(Mv(target, A0));
-            }
+            result.append(make_closure(f_name, target));
             continue;
         }
         
@@ -699,8 +728,17 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     ];
 
     if (fun.name._ == "minimbt_main") {
-        pseudobody.push(Call("main"));
+        // If there is init(), then call init() first
+        if (t.funcs.filter(fn (x) { x.old_name.name == Some("init") }).length() > 0) {
+            pseudobody.push(Call("init"));
+        }
+
+        // Then call main()
+        if (t.funcs.filter(fn (x) { x.old_name.name == Some("main") }).length() > 0) {
+            pseudobody.push(Call("main"));
+        }
     }
+
 
     regalloc(pseudobody, false);
 
@@ -737,7 +775,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     AssemblyFunction :: {
         name:
             // We also want entry point to be unmodified
-            if (["minimbt_main", "main"].contains(fun.name._)) {
+            if (["minimbt_main", "main", "init"].contains(fun.name._)) {
                 fun.name._
             } else {
                 fun.old_name.to_string()
@@ -754,13 +792,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 }
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
-    t.funcs = [
-        ..program.fundefs,
-        emit_main(program.body)
-    ];
+    t.funcs = [..program.fundefs];
+
+    // emit_main() relies on t.funcs to determine if there is call to init()
+    t.funcs.push(emit_main(program.body));
 
     // Remove all captures of toplevel functions
-    ignore(t.funcs.map(fn (f) {
+    for f in t.funcs {
         let copy = f.captured.copy();
         f.captured.clear();
 
@@ -769,7 +807,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
                 f.captured.push(x);
             }
         }
-    }));
+    };
 
     let arr = t.funcs.map(emit_fn);
 
@@ -784,7 +822,7 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
         match reg {
             Fake(name) => match t.regs[name] {
                 Some(w) => w
-                None => @util.die("Regalloc failed! \{reg}")
+                None => Spilt(9) //@util.die("Regalloc failed! \{reg}")
             }
             z => z
         }

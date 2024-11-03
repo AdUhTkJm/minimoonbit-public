@@ -67,7 +67,7 @@ pub fn Expr::from_json(json : Json) -> Expr! {
                 Expr::from_json!(e1),
                 Expr::from_json!(e2),
             )
-        ["Let", [n, t], e1, e2] =>
+        ["Let", n, e1, e2] =>
             Expr::Let(
                 (Name::from_json!(n)),
                 Expr::from_json!(e1),
@@ -100,7 +100,6 @@ pub fn Expr::from_json(json : Json) -> Expr! {
             for it in n_ts {
                 match it {
                     n => n_ts_res.push(Name::from_json!(n))
-                    _ => fail!("invalid json")
                 }
             }
             Expr::LetTuple(n_ts_res, Name::from_json!(n), Expr::from_json!(e))
@@ -207,7 +206,6 @@ pub fn FuncDef::from_json(json : Json) -> FuncDef! {
             "name": String(name),
             "old_name": n,
             "is_closure": b,
-            "ty": t,
             "args": Array(args),
             "formal_free_vars": Array(formal_free_vars),
             "body": body,

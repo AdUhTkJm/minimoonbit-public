@@ -101,6 +101,11 @@ fn primary() -> @types.Syntax {
             tin.expect(RPar);
             Array(a1, a2)
         }
+        LBrace => {
+            let inner = stmt();
+            tin.expect(RBrace);
+            inner
+        }
         z => @util.die("Unexpected token \{z} in primary()")
     }
 }
@@ -355,17 +360,13 @@ fn stmt() -> @types.Syntax {
 fn toplevel_fn() -> @types.Syntax {
     let ident = tin.consume();
     let f_name = match ident {
-        Ident(s) => if (s == "init") {
-            "main"
-        } else {
-            s
-        }
+        Ident(s) => s
         _ => @util.die("Expected identifier after 'fn'");
     }
     
     let fargs: Array[(String, @types.Type)] = [];
     let mut ret_ty: @types.Type = Unit;
-    if (f_name != "main") {
+    if (f_name != "main" && f_name != "init") {
         tin.expect(LPar);
         while (tin.check(RPar).not()) {
             let v_i = tin.consume();

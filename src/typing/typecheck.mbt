@@ -201,14 +201,16 @@ fn resolve(ty: @types.Type) -> @types.Type {
 }
 
 fn add_name(names: @immut/hashmap.T[String, String], x: String) -> @immut/hashmap.T[String, String] {
-    return if (names.find(x).is_empty()) {
+    // We can have multiple "fn init {...}"; it is legal
+    // We added { "main": "main" } at the beginning of deconflict(), so don't need to add one more
+    return if (names.find(x).is_empty() || x == "init" || x == "main") {
         names.add(x, x);
     } else {
         names.add(x, "\{x}_");
     }
 }
 
-// Rename variables so that there are no conflicts.
+// Rename variables so that there are no variables of the same name.
 fn deconflict(ast: @types.Syntax, names: @immut/hashmap.T[String, String]) -> @types.Syntax {
     match ast {
         LetRec({ name: (f_name, ty), body: syn, args: args }, w) => {
@@ -293,7 +295,10 @@ pub fn typed(ast: @types.Syntax) -> @types.Syntax {
 }
 
 pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {
-    let d = deconflict(ast, @immut/hashmap.T::new());
+    // It is possible that there are no main()
+    // But we added the call to main() beforehand
+    let d = deconflict(ast, @immut/hashmap.T::new().add("main", "main"));
+
     unify(infer(d, @immut/hashmap.T::new(), ~global = true), Unit);
     return typed(d);
 }
