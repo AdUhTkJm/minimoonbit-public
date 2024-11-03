@@ -267,6 +267,21 @@ fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
     }
 }
 
+pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
+    match expr {
+        Let(a, val, w) => {
+            // The final command of body will be a call to main()
+            // So instead of making it a closure (in tidy())
+            // we will directly compile it into a call
+            match val {
+                Var({ name: Some("main"), .. }) => Unit
+                _ => Let(a, val, eliminate_main_call(w))
+            }
+        }
+        _ => @util.die("Unexpected global \{expr}");
+    }
+}
+
 // Return value: where the result of this expression is stored
 fn emit_expr(expr: @closure.Expr) -> Reg {
     match expr {
@@ -653,7 +668,7 @@ pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
         is_closure: false,
         args: [],
         captured: [],
-        body: body
+        body: eliminate_main_call(body)
     }
 }
 
@@ -834,7 +849,6 @@ fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
     let opt = [];
     for i = 0; i < body.length(); i = i + 1 {
         if (to_delete.contains(i)) {
-            println("Delete \{body[i]}")
             continue;
         }
 

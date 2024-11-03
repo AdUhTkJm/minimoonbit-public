@@ -402,7 +402,7 @@ fn emit_main(body: @closure.Expr) -> String {
             _ => ()
         }
     }
-    do_emit(body);
+    do_emit(@riscv.eliminate_main_call(body));
     let tidied = tidy(asm);
     let result = tidied.map(fn (x) { x.to_string() }).join("\n");
     return "(func $minimbt_main \{result} (call $main) (return))\n";

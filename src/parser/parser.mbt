@@ -429,7 +429,10 @@ fn toplevel() -> @types.Syntax {
     }
 
     if (n == EOF) {
-        return Unit;
+        // Add a main call here;
+        // we need to eliminate the main call for WASM and RISC-V,
+        // but this has to be present for KNF interpreter and JS
+        return App(Var("main"), []);
     }
 
     @util.die("Unexpected token at toplevel: \{n}");
