@@ -270,7 +270,11 @@ fn deconflict(ast: @types.Syntax, names: @immut/hashmap.T[String, String]) -> @t
             Not(deconflict(a, names));
 
         Var(w) =>
-            Var(names[w].unwrap());
+            match names[w] {
+                None => Var(w)      // This only happens for global variables
+                                    // And any conflict will cause crash
+                Some(x) => Var(x)
+            }
 
         Tuple(arr) =>
             Tuple(arr.map(fn (x) { deconflict(x, names) }))

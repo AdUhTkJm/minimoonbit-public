@@ -118,7 +118,6 @@ pub fn lex(input: String) -> Array[Token] {
         match c {
             '+' => result.push(Add)
             '*' => result.push(Mul)
-            '/' => result.push(Div)
             '.' => result.push(Dot)
             '(' => result.push(LPar)
             ')' => result.push(RPar)
@@ -150,6 +149,15 @@ pub fn lex(input: String) -> Array[Token] {
                 x += 1;
             } else {
                 @util.die("Lexing error: '<' must be followed by '='");
+            }
+
+            
+            '/' => if arr[x + 1] == '/' {
+                while (arr[x] != '\n') {
+                    x += 1;
+                }
+            } else {
+                result.push(Div);
             }
 
             '\x00' => ()

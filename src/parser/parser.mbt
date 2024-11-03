@@ -106,7 +106,7 @@ fn primary() -> @types.Syntax {
             tin.expect(RBrace);
             inner
         }
-        z => @util.die("Unexpected token \{z} in primary()")
+        z => @util.die("Unexpected token \{z} in primary() with surrouding \{tin.surround()}")
     }
 }
 

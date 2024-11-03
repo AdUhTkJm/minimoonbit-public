@@ -57,6 +57,14 @@ fn union(a: @immut/hashset.T[@types.Name], b: @immut/hashset.T[@types.Name]) -> 
     l;
 }
 
+fn union_names(a: @immut/hashset.T[String], b: @immut/hashset.T[String]) -> @immut/hashset.T[String] {
+    let mut l = a;
+    for z in b {
+        l = l.add(z);
+    }
+    l;
+}
+
 fn OptEnv::add_used(self: OptEnv, arr: Array[Name]) -> Unit {
     self.used_names = union(self.used_names, @immut/hashset.T::from_array(arr));
 }

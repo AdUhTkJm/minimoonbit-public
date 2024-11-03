@@ -3,6 +3,7 @@ pub typealias LocalEnv = @immut/hashmap.T[String, Type]
 struct KnfEnv {
     mut counter : Ref[Int]
     mut names: @immut/hashmap.T[String, Name]
+    mut globals: NameSet
 }
 
 pub fn KnfEnv::new(externals : @immut/hashmap.T[String, Type]) -> KnfEnv {
@@ -10,6 +11,7 @@ pub fn KnfEnv::new(externals : @immut/hashmap.T[String, Type]) -> KnfEnv {
     KnfEnv :: {
         counter: Ref::new(1),
         names: @immut/hashmap.T::new(),
+        globals: NameSet::new()
     };
 }
 
@@ -45,6 +47,18 @@ fn KnfEnv::get(self: KnfEnv, name: String) -> Name {
 fn KnfEnv::add(self: KnfEnv, name: String) -> Unit {
     self.names = self.names.add(name, self.new_named_temp(Name::name_only(name)));
 }
+
+typealias NameSet = @immut/hashset.T[String];
+
+fn globals(e: @types.Syntax) -> NameSet {
+    match e {
+        Let(a, _, c) => union_names(NameSet::from_array([a.0]), globals(c))
+        LetRec({ name: f_name, .. }, w) => union_names(NameSet::from_array([f_name.0]), globals(w))
+        LetTuple(arr, _, w) => union_names(NameSet::from_array(arr.map(fn (x) { x.0 })), globals(w))
+        _ => NameSet::new();
+    }
+}
+
 
 pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
     match s {
@@ -98,29 +112,39 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             Let(a1, self.to_knf(l), Let(a2, self.to_knf(r), i));
         }
         Let((name, _), s1, s2) => {
-            self.add(name);
+            if (self.globals.contains(name).not()) {
+                self.add(name);
+            }
 
             Let(self.get(name), self.to_knf(s1), self.to_knf(s2));
         }
         LetRec({ name: (f_name, ty), args: args, body: syn }, w) => {
-            self.add(f_name);
+            if (self.globals.contains(f_name).not()) {
+                self.add(f_name);
+            }
 
             // New scope started, deep copy current environment
             let env = KnfEnv :: {
-                counter: self.counter,
-                names: self.names
+                ..self
             };
             for z in args {
                 env.add(z.0);
             }
             let e_args = args.map(fn (z) { env.get(z.0) });
 
-            LetRec(FuncDef::{ name: self.get(f_name), ty: ty, args: e_args, body: env.to_knf(syn)}, self.to_knf(w));
+            LetRec(FuncDef :: {
+                name: self.get(f_name),
+                ty: ty,
+                args: e_args,
+                body: env.to_knf(syn)},
+            self.to_knf(w));
         }
         LetTuple(arr, syn, w) => {
             let var = self.new_temp();
             for z in arr {
-                self.add(z.0);
+                 if (self.globals.contains(z.0).not()) {
+                    self.add(z.0);
+                 }
             }
             Let(var, self.to_knf(syn),
             LetTuple(arr.map(fn (z) { self.get(z.0) }), var, self.to_knf(w)))
@@ -193,4 +217,15 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             fn (i, knf, arg) { Let(t_args[i], self.to_knf(arg), knf)});
         }
     }
+}
+
+pub fn KnfEnv::convert(self: KnfEnv, s: @types.Syntax) -> Knf {
+    // We can always refer to a global variable before it is defined
+    // So get global vars here
+    self.globals = globals(s);
+    for x in self.globals {
+        self.add(x);
+    }
+
+    self.to_knf(s);
 }

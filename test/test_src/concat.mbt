@@ -14,11 +14,13 @@ fn concat(x: Array[Double], y: Array[Double], xlen: Int, ylen: Int) -> Array[Dou
         if (i[0] == xlen + ylen) {
             result
         } else {
-            if not(i[0] <= xlen) {
+            let _ = if not(i[0] <= xlen) {
                 result[i[0]] = x[i[0]];
+                ()
             } else {
                 result[i[0]] = y[i[0] - xlen];
-            }
+                ()
+            };
             i[0] = i[0] + 1;
             aux()
         }
@@ -26,12 +28,12 @@ fn concat(x: Array[Double], y: Array[Double], xlen: Int, ylen: Int) -> Array[Dou
     aux()
 };
 
-fn print_array(arr: Array[Int], n: Int) -> Unit {
+fn print_array(arr: Array[Double], n: Int) -> Unit {
     fn aux(i: Int) -> Unit {
         if i == n {
             ()
         } else {
-            let _ = print_int(arr[i]);
+            let _ = print_int(truncate(arr[i]));
             let _ = print_char(32);
             aux(i + 1)
         }
@@ -43,8 +45,14 @@ fn main {
     let a = Array::make(10, 0.0);
     let b = Array::make(10, 0.0);
     fn fill(i) {
-        a[i] = float_of_int(i);
+        if not(10 <= i) {
+            a[i] = float_of_int(i);
+            b[i] = 9.0 - float_of_int(i);
+            fill(i + 1)
+        } else {
+            ()
+        }
     };
     let _ = fill(0);
-    print_array(concat(a, b, 10, 10))
+    print_array(concat(a, b, 10, 10), 20)
 };
