@@ -11,16 +11,16 @@ struct T {
     mut offset: Int
 
     // The first instruction where a register is written to
-    mut first_used: Map[@typing.Name, Int]
+    mut first_used: Map[@types.Name, Int]
 
     // The first instruction where a register is read from
-    mut last_used: Map[@typing.Name, Int]
+    mut last_used: Map[@types.Name, Int]
 
     // The register for each name in IR
-    mut regs: Map[@typing.Name, Reg]
+    mut regs: Map[@types.Name, Reg]
     
     // Which name occupies the register?
-    mut occupy: Map[Reg, @typing.Name]
+    mut occupy: Map[Reg, @types.Name]
 
     // Temporary register count (for intermediate results)
     mut rcnt: Int
@@ -33,6 +33,9 @@ struct T {
 
     // All register used in a function
     mut all_used: @immut/sorted_set.T[Reg]
+
+    // The environment is stored in Reg for the closure called @types.Name
+    mut env_of: Map[@types.Name, Reg];
 }
 
 fn T::new() -> T {
@@ -46,7 +49,33 @@ fn T::new() -> T {
         labelcount: 0,
         funcs: [],
         all_used: @immut/sorted_set.T::new(),
+        env_of: Map::new(),
     }
+}
+
+fn is_closure(name: @types.Name) -> Bool {
+    match type_of(name) {
+        Fun(_) => true
+        _ => false
+    }
+}
+
+fn has_env(name: @types.Name) -> Bool {
+    return t.env_of.contains(name);
+}
+
+fn get_env(name: @types.Name) -> Reg {
+    if (is_closure(name).not()) {
+        @util.die("emit: not closure: \{name}")
+    }
+    match t.env_of[name] {
+        Some(x) => x
+        _ => @util.die("emit: no env: \{name}")
+    }
+}
+
+fn add_closure(name: @types.Name, env: Reg) -> Unit {
+    t.env_of[name] = env;
 }
 
 fn t_clear() -> Unit {
@@ -62,7 +91,7 @@ fn t_clear() -> Unit {
 pub let t: T = T::new();
 
 
-fn reg(r: @typing.Name) -> Unit {
+fn reg(r: @types.Name) -> Unit {
     for z in reg_allocatable_list {
         // z is used after this instruction, so can't reuse
         if (t.occupy.contains(z) && t.last_used[t.occupy[z].unwrap()] > t.first_used[r]) {
@@ -82,13 +111,15 @@ fn reg(r: @typing.Name) -> Unit {
 }
 
 // Produce a fake register
-fn fake() -> Reg {
-    let z = Fake(@typing.Name::slot_only(t.rcnt));
+fn fake(ty: @types.Type) -> Reg {
+    let name = @types.Name::slot_only(t.rcnt);
+    let z = Fake(name);
+    @knf.typing[name] = ty;
     t.rcnt += 1;
     z
 }
 
-fn find_func(a: @typing.Name) -> Option[@closure.FuncDef] {
+fn find_func(a: @types.Name) -> Option[@closure.FuncDef] {
     for f in t.funcs {
         if (f.old_name == a) {
             return Some(f);
@@ -97,113 +128,25 @@ fn find_func(a: @typing.Name) -> Option[@closure.FuncDef] {
     None
 }
 
-// rd is the register written to, rs1 and rs2 are the ones read from
-struct RegFile {
-    rd: Option[Reg]
-    rs1: Option[Reg]
-    rs2: Option[Reg]
-}
 
-fn reg_used(asm: RvAsm) -> RegFile {
-    match asm {
-        Add(rd, rs1, rs2) |
-        Sub(rd, rs1, rs2) |
-        Xor(rd, rs1, rs2) |
-        Or(rd, rs1, rs2) |
-        And(rd, rs1, rs2) |
-        Sll(rd, rs1, rs2) |
-        Srl(rd, rs1, rs2) |
-        Sra(rd, rs1, rs2) |
-        Slt(rd, rs1, rs2) |
-        Sltu(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
-
-        Addi(rd, rs1, _) |
-        Xori(rd, rs1, _) |
-        Ori(rd, rs1, _) |
-        Andi(rd, rs1, _) |
-        Slli(rd, rs1, _) |
-        Srli(rd, rs1, _) |
-        Srai(rd, rs1, _) |
-        Slti(rd, rs1, _) |
-        Sltiu(rd, rs1, _) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
-
-        Lb(rd, { base: rs1, offset: _ }) |
-        Lh(rd, { base: rs1, offset: _ }) |
-        Lw(rd, { base: rs1, offset: _ }) |
-        Ld(rd, { base: rs1, offset: _ }) |
-        Lbu(rd, { base: rs1, offset: _ }) |
-        Lhu(rd, { base: rs1, offset: _ }) |
-        Lwu(rd, { base: rs1, offset: _ }) |
-        Fld(rd, { base: rs1, offset: _ })=> { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
-
-        // Here rd is unchanged, so only a read
-        Sb(rd, { base: rs1, offset: _ }) |
-        Sh(rd, { base: rs1, offset: _ }) |
-        Sw(rd, { base: rs1, offset: _ }) |
-        Sd(rd, { base: rs1, offset: _ }) |
-        Fsd(rd, { base: rs1, offset: _ }) => { rd : None, rs1 : Some(rs1), rs2 : Some(rd) }
-
-        Beq(rs1, rs2, _) |
-        Bne(rs1, rs2, _) |
-        Blt(rs1, rs2, _) |
-        Bge(rs1, rs2, _) |
-        Ble(rs1, rs2, _) |
-        Bgt(rs1, rs2, _) |
-        Bltu(rs1, rs2, _) |
-        Bgeu(rs1, rs2, _) => { rd : None, rs1 : Some(rs1), rs2 : Some(rs2) }
-        
-        Mul(rd, rs1, rs2) |
-        Mulw(rd, rs1, rs2) |
-        Mulh(rd, rs1, rs2) |
-        Mulhsu(rd, rs1, rs2) |
-        Mulhu(rd, rs1, rs2) |
-        Div(rd, rs1, rs2) |
-        Divw(rd, rs1, rs2) |
-        Divu(rd, rs1, rs2) |
-        Rem(rd, rs1, rs2) |
-        Remw(rd, rs1, rs2) |
-        Remu(rd, rs1, rs2) |
-        FaddD(rd, rs1, rs2) |
-        FsubD(rd, rs1, rs2) |
-        FmulD(rd, rs1, rs2) |
-        FeqD(rd, rs1, rs2) |
-        FleD(rd, rs1, rs2) |
-        FdivD(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
-
-        La(rd, _) |
-        Li(rd, _) => { rd : Some(rd), rs1 : None, rs2 : None }
-
-        Neg(rd, rs1) |
-        FnegD(rd, rs1) |
-        FmvD(rd, rs1) |
-        FmvDX(rd, rs1) |
-        FmvXD(rd, rs1) |
-        Mv(rd, rs1) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
-
-        Nop | Ecall | J(_) | Call(_) | Tail(_) | Ret | Label(_) | Comment(_)
-            => { rd : None, rs1 : None, rs2 : None }
-        
-        Jalr(rs1) | Jr(rs1) => { rd : None, rs1 : Some(rs1), rs2 : None }
-    }
-}
-
-fn real(reg: Option[Reg]) -> @typing.Name {
+// Returns the @types.Name for a register, if it is a fake one
+fn real(reg: Reg) -> @types.Name {
     match reg {
-        Some(Fake(name)) => name
+        Fake(name) => name
         _ => @util.die("non-fake")
     }
 }
 
-fn is_fake(reg: Option[Reg]) -> Bool {
+fn is_fake(reg: Reg) -> Bool {
     match reg {
-        Some(Fake(_)) => true
+        Fake(_) => true
         _ => false
     }
 }
 
-fn visited(reg: Option[Reg]) -> Bool {
+fn visited(reg: Reg) -> Bool {
     match reg {
-        Some(Fake(name)) => t.first_used.contains(name)
+        Fake(name) => t.first_used.contains(name)
         _ => false
     }
 }
@@ -222,16 +165,23 @@ fn store_last(reg: Option[Reg], i: Int) -> Unit {
     }
 }
 
+fn type_of(name: @types.Name) -> @types.Type {
+    match @knf.typing[name] {
+        Some(x) => @typing.real(x)
+        _ => @util.die("emit: cannot determine type of \{name}")
+    }
+}
+
 fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
-    let to_alloc: Array[@typing.Name] = [];
+    let to_alloc: Array[@types.Name] = [];
 
     // Record all assigned registers
     // Find the first and last times where they are accessed
     for i = 0; i < asm.length(); i = i + 1 {
         let used = reg_used(asm[i]);
-        if (is_fake(used.rd) && visited(used.rd).not()) {
+        if (used.rd.is_empty().not() && is_fake(used.rd.unwrap()) && visited(used.rd.unwrap()).not()) {
             store_first(used.rd, i);
-            to_alloc.push(real(used.rd));
+            to_alloc.push(real(used.rd.unwrap()));
         }
         store_last(used.rs1, i);
         store_last(used.rs2, i);
@@ -240,7 +190,7 @@ fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
     // After tidy(), remove unused Names
     // otherwise their last_used won't exist and makes reg() fail to work
     if (tidy) {
-        let no_use: Array[@typing.Name] = [];
+        let no_use: Array[@types.Name] = [];
         for x in to_alloc {
             if (t.last_used.contains(x).not()) {
                 no_use.push(x);
@@ -250,7 +200,7 @@ fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
         asm.clear();
         for x in copy {
             let used = reg_used(x);
-            if (is_fake(used.rd) && no_use.contains(real(used.rd))) {
+            if (used.rd.is_empty().not() && is_fake(used.rd.unwrap()) && no_use.contains(real(used.rd.unwrap()))) {
                 continue;
             }
             asm.push(x);
@@ -282,6 +232,7 @@ pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
                 _ => Let(a, val, eliminate_main_call(w))
             }
         }
+        Call(x, _) => if (x.name == Some("main")) { Unit } else { expr }
         _ => @util.die("Unexpected global \{expr}");
     }
 }
@@ -289,40 +240,49 @@ pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
 // Return value: where the result of this expression is stored
 fn emit_expr(expr: @closure.Expr) -> Reg {
     match expr {
-        Unit => A0
-        Var(x) | FVar(x) => Fake(x)
+        Unit => fake(Unit)
+        Var(x) | FVar(x) => {
+            if (is_closure(x) && has_env(x).not() && @closure.glob.val.contains(x).not()) {
+                let r = fake(type_of(x));
+                asm.append(make_closure(x, r));
+                r;
+            } else {
+                Fake(x)
+            }
+        }
         Int(x) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Li(r, x.to_string()));
             r;
         }
         Double(x) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(Li(r, x.reinterpret_as_i64().to_string()));
             r;
         }
         Add(a, b) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Add(r, Fake(a), Fake(b)));
             r;
         }
         Sub(a, b) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Sub(r, Fake(a), Fake(b)));
             r;
         }
         Div(a, b) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Div(r, Fake(a), Fake(b)));
             r;
         }
         Mul(a, b) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Mul(r, Fake(a), Fake(b)));
             r;
         }
+        // have to rework FP registers somehow
         FAdd(a, b) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(FmvDX(Ft1, Fake(a)));
             asm.push(FmvDX(Ft2, Fake(b)));
             asm.push(FaddD(Ft1, Ft1, Ft2));
@@ -330,7 +290,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         FSub(a, b) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(FmvDX(Ft1, Fake(a)));
             asm.push(FmvDX(Ft2, Fake(b)));
             asm.push(FsubD(Ft1, Ft1, Ft2));
@@ -338,7 +298,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         FDiv(a, b) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(FmvDX(Ft1, Fake(a)));
             asm.push(FmvDX(Ft2, Fake(b)));
             asm.push(FdivD(Ft1, Ft1, Ft2));
@@ -346,7 +306,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         FMul(a, b) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(FmvDX(Ft1, Fake(a)));
             asm.push(FmvDX(Ft2, Fake(b)));
             asm.push(FmulD(Ft1, Ft1, Ft2));
@@ -354,30 +314,41 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         FNeg(a) => {
-            let r = fake();
+            let r = fake(Double);
             asm.push(FmvDX(Ft1, Fake(a)));
             asm.push(FnegD(Ft1, Ft1));
             asm.push(FmvXD(r, Ft1));
             r;
         }
         Eq(a, b) => {
-            let r = fake();
-            asm.push(Xor(r, Fake(a), Fake(b)));
-            // set less than immediate, unsigned
-            // r = (r < 1u ? 1 : 0)
-            asm.push(Sltiu(r, r, 1));
+            let r = fake(Int);
+            if (type_of(a) == Double) {
+                asm.push(FmvDX(Ft1, Fake(a)));
+                asm.push(FmvDX(Ft2, Fake(b)));
+                asm.push(FeqD(r, Ft1, Ft2));
+            } else {
+                let r = fake(Int);
+                asm.push(Xor(r, Fake(a), Fake(b)));
+                // set less than immediate, unsigned
+                // r = (r < 1u ? 1 : 0)
+                asm.push(Sltiu(r, r, 1));
+            }
             r;
         }
         Le(a, b) => {
-            let r = fake();
-            // set less than
-            // r = (b < a ? 1 : 0)
-            asm.push(Slt(r, Fake(b), Fake(a)));
-            asm.push(Xori(r, r, 1));
+            let r = fake(Int);
+            if (type_of(a) == Double) {
+                asm.push(FmvDX(Ft1, Fake(a)));
+                asm.push(FmvDX(Ft2, Fake(b)));
+                asm.push(FleD(r, Ft1, Ft2));
+            } else {
+                asm.push(Slt(r, Fake(b), Fake(a)));
+                asm.push(Xori(r, r, 1));
+            }
             r;
         }
         Neg(a) => {
-            let r = fake();
+            let r = fake(Int);
             asm.push(Sub(r, Zero, Fake(a)));
             r;
         }
@@ -387,43 +358,100 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         ArrayGet(x, i) => {
-            let r = fake();
+            let ty = match type_of(x) {
+                Array(w) => w
+                _ => @util.die("emit: array get in non-array (\{x}: \{type_of(x)})");
+            }
+            let r = fake(ty);
             // r = *(x + (i << 3));
             asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
-            asm.push(Ld(r, { base: r, offset: 0 }));
+
+            match ty {
+                // This is an array of functions
+                Fun(_) => {
+                    // Unpack closure
+                    let closure = fake(ty);
+                    asm.push(Ld(closure, { base: r, offset: 0 }));
+                    asm.push(Ld(r, { base: closure, offset: 0 }));
+                    
+                    let env = fake(Ptr);
+                    asm.push(Ld(env, { base: closure, offset: 8 }));
+                    add_closure(real(r), env);
+                }
+                _ => {
+                    asm.push(Ld(r, { base: r, offset: 0 }));
+                }
+            }
             r;
         }
         ArrayPut(x, i, val) => {
-            let r = fake();
+            let addr = fake(Int);
             // *(x + (i << 3)) = val;
-            asm.push(Slli(r, Fake(i), 3));
-            asm.push(Add(r, r, Fake(x)));
-            asm.push(Sd(Fake(val), { base: r, offset: 0 }));
-            A0;
+            asm.push(Slli(addr, Fake(i), 3));
+            asm.push(Add(addr, addr, Fake(x)));
+
+            if (is_closure(val)) {
+                // Pack the closure
+                let closure = pack_closure(val);
+
+                asm.push(Sd(closure, { base: addr, offset: 0 }));
+            } else {
+                asm.push(Sd(Fake(val), { base: addr, offset: 0 }));
+            }
+            fake(Unit);
         }
         MakeTuple(arr) => {
-            let r = fake();
+            let r = fake(Ptr);
+            let array = fake(Tuple(arr.map(type_of)));
+
             // Allocate an array for the tuple
             asm.push(Li(A0, (8 * arr.length()).to_string()));
             asm.push(Call("minimbt_create_ptr_array"));
+
+            // We can't directly use a0 because it might be tampered by pack_closure()
+            asm.push(Mv(array, A0));
+
             // Put everything into the array
             let _ = arr.mapi(fn (i, x) {
-                asm.push(Sd(Fake(x), { base: A0, offset: i * 8 }));
+                if (is_closure(x)) {
+                    // We need to pack the closure so that it fits in 8 bytes
+                    let closure = pack_closure(x);
+
+                    asm.push(Sd(closure, { base: array, offset: i * 8 }));
+                } else {
+                    asm.push(Sd(Fake(x), { base: array, offset: i * 8 }));
+                }
             });
             // Record the array address
-            asm.push(Mv(r, A0));
+            asm.push(Mv(r, array));
             r;
         }
         IfEq(a, b, body, otherwise) => {
             let l_else = "else_\{t.labelcount}";
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
+            
+            let ty: @types.Type = match type_of(a) {
+                Int => Int
+                Double => Double
+                _ => @util.die("emit: type error in if-eq (\{a}: \{type_of(a)})");
+            };
 
-            let r = fake();
+            if (ty == Int) {
+                asm.push(Bne(Fake(a), Fake(b), l_else));
+            } else {
+                let r = fake(Int);
+                asm.push(FmvDX(Ft1, Fake(a)));
+                asm.push(FmvDX(Ft2, Fake(b)));
+                asm.push(FeqD(r, Ft1, Ft2));
+                asm.push(Beq(r, Zero, l_else));
+            }
+            
+            let e_body = emit_expr(body);
+            let r = fake(type_of(real(e_body)));
+            asm.push(Mv(r, e_body));
 
-            asm.push(Bne(Fake(a), Fake(b), l_else));
-            asm.push(Mv(r, emit_expr(body)));
             asm.push(J(end));
             asm.push(Label(l_else));
             asm.push(Mv(r, emit_expr(otherwise)));
@@ -435,9 +463,26 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
 
-            let r = fake();
-            asm.push(Bgt(Fake(a), Fake(b), l_else));
-            asm.push(Mv(r, emit_expr(body)));
+            let ty: @types.Type = match type_of(a) {
+                Int => Int
+                Double => Double
+                _ => @util.die("emit: type error in if-eq (\{a}: \{type_of(a)})");
+            };
+
+            if (ty == Int) {
+                asm.push(Bgt(Fake(a), Fake(b), l_else));
+            } else {
+                let r = fake(Int);
+                asm.push(FmvDX(Ft1, Fake(a)));
+                asm.push(FmvDX(Ft2, Fake(b)));
+                asm.push(FleD(r, Ft1, Ft2));
+                asm.push(Beq(r, Zero, l_else));
+            }
+            
+            let e_body = emit_expr(body);
+            let r = fake(type_of(real(e_body)));
+            asm.push(Mv(r, e_body));
+
             asm.push(J(end));
             asm.push(Label(l_else));
             asm.push(Mv(r, emit_expr(otherwise)));
@@ -446,82 +491,115 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         Let(a, val, w) => {
             let rv = emit_expr(val);
+            let name = real(rv);
+            
+            // If we are assigning a closure to another @types.Name
+            // we must also associate the same environment
+            if (is_closure(name) && has_env(name)) {
+                add_closure(a, get_env(name));
+            }
+
             asm.push(Mv(Fake(a), rv));
             emit_expr(w);
         }
         LetTuple(arr, val, w) => {
-            ignore(arr.mapi(fn (i, x) {
-                asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
-            }));
+            let _ = arr.mapi(fn (i, x) {
+                if (is_closure(val)) {
+                    let closure = fake(type_of(val));
+                    asm.push(Ld(closure, { base: Fake(val), offset: i * 8 }));
+                    asm.push(Ld(Fake(x), { base: closure, offset: 0 }));
+                    
+                    let env = fake(Ptr);
+                    asm.push(Ld(env, { base: closure, offset: 8 }));
+                    add_closure(x, env);
+                } else {
+                    asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
+                }
+            });
             emit_expr(w);
         }
         CallExternal(name, args) => {
-            if (args.length() != 0) {
+            // The only external we used is create_**_array
+            if (args.length() > 1) {
+                if (is_closure(args[1])) {
+                    let closure = pack_closure(args[1]);
+                    asm.push(Mv(A1, closure));
+                } else {
+                    asm.push(Mv(A1, Fake(args[1])));
+                }
                 asm.push(Mv(A0, Fake(args[0])));
+                asm.push(Call(name._));
+                
+                let rv = fake(Array(type_of(args[1])));
+                asm.push(Mv(rv, A0));
+                rv
+            } else {
+                // We don't care; the other ones are for print_int etc.
+                // and they will be removed anyway
+                fake(Unit);
             }
-
-            // Only create_**_array methods need 2 arguments
-            if (name._.ends_with("_array")) {
-                asm.push(Mv(A1, Fake(args[1])));
-            }
-            asm.push(Call(name._));
-            A0
         }
-        Call(name, args) => {
-            let _ = args.mapi(fn (i, x) {
-                asm.push(Mv(Arg(i), Fake(x)));
-            });
+        Call(name, args) | CallTailRec(name, args) => {
+            // Must do it before we load arguments
+            // because pack_closure() tampers a0
+            let closures = {};
+            for x in args {
+                if (is_closure(x)) {
+                    let closure = pack_closure(x);
+                    closures[x] = closure;
+                }
+            }
 
             match @knf.value_of(name) {
-                Some(Unknown) | None => {
-                    // We don't know this function, have to call a closure for this
+                Unknown => {
+                    let _ = args.mapi(fn (i, x) {
+                        if (is_closure(x)) {
+                            asm.push(Mv(Arg(i), closures[x].unwrap()));
+                        } else {
+                            asm.push(Mv(Arg(i), Fake(x)));
+                        }
+                    });
 
-                    // Remember:
-                    // struct Closure { void* (*func)(void*); void* env; };
-                    let env = fake();
-                    let func = fake();
-                    asm.push(Ld(func, { base: Fake(name), offset: 0 }));
-                    asm.push(Ld(env, { base: Fake(name), offset: 8 }));
-
-                    // Also pass environment into function
-                    asm.push(Mv(Arg(args.length()), env));
-                    
-                    // Do the call
-                    asm.push(Jalr(func));
-                    A0
-                }
-                Some(Fun(x)) => {
-                    let fi = t.funcs.search_by(fn (z) { z.old_name == x });
-                    let func = t.funcs[fi.unwrap()];
-                    if (func.is_closure) {
-                        // For closure, we still need to extract the environment
-                        let env = fake();
-                        asm.push(Ld(env, { base: Fake(name), offset: 8 }));
-                        asm.push(Mv(Arg(args.length()), env));
+                    if (is_closure(name) && has_env(name)) {
+                        asm.push(Mv(Arg(args.length()), get_env(name)));
                     }
-                    // Direct call, since we know what function this is
-                    asm.push(Call(name_fn(x)));
-                    A0
+                    asm.push(Jalr(Fake(name)));
                 }
-                _ => @util.die("Internal error: calling non-function in emit_expr()")
-            }
-        }
-        // Call a tail recursive function
-        CallTailRec(name, args) => {
-            // No need to load a closure again
-            // Just do the call
-            let _ = args.mapi(fn (i, x) {
-                ignore(i); ignore(x);
-            //    asm.push(Mv(Arg(i), Fake(x)));
-            });
+                Fun(x) => {
+                    let fi = t.funcs.search_by(fn (w) { w.old_name == x }).unwrap();
+                    let f = t.funcs[fi];
 
-            // The function we are referring to
-            let f = match @knf.delete_refer(@knf.e.value[name].unwrap()) {
-                Fun(x) => x
-                _ => @util.die("Misbehaved tail recursion; check optimization.mbt")
+                    if (f.is_closure && has_env(name).not()) {
+                        asm.append(make_closure(x, fake(Unit)));
+                        asm.push(Mv(Arg(args.length()), A1));
+                    } else if (f.is_closure) {
+                        asm.push(Mv(Arg(args.length()), get_env(name)));
+                    }
+
+                    let _ = args.mapi(fn (i, x) {
+                        if (is_closure(x)) {
+                            asm.push(Mv(Arg(i), closures[x].unwrap()));
+                        } else {
+                            asm.push(Mv(Arg(i), Fake(x)));
+                        }
+                    });
+
+                    asm.push(Call(name_fn(x)));
+                }
+                _ => @util.die("emit: calling non-function in emit_expr() \{@knf.value_of(name)}")
             }
-            asm.push(J("\{f}_tailrec"));
-            A0
+
+            let rv = fake(match type_of(name) {
+                Fun(_, ret_ty) => ret_ty
+                _ => @util.die("emit: calling non-function in emit_expr() \{type_of(name)}")
+            });
+            if (is_closure(real(rv))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, A1));
+                add_closure(real(rv), env);
+            }
+            asm.push(Mv(rv, A0));
+            rv
         }
         ExternalArray(_) => @util.die("External array not supported")
     }
@@ -535,7 +613,7 @@ fn weak_eq(a: Reg, b: Reg) -> Bool {
 }
 
 // Returns the name of a function
-fn name_fn(f_name: @typing.Name) -> String {
+fn name_fn(f_name: @types.Name) -> String {
     if (externs.contains(f_name.name.unwrap())) {
         f_name.name.unwrap()
     } else {
@@ -543,10 +621,16 @@ fn name_fn(f_name: @typing.Name) -> String {
     }
 }
 
-fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
+// This requires that "f_name" must be the real name of a function
+// It pushes the pointer to f_name into target, and places env on a1
+fn make_closure(f_name: @types.Name, target: Reg) -> Array[RvAsm] {
     let result = [];
-    let args: Array[(@typing.Name, Int)] = [];
+    let captured: Array[(@types.Name, Int)] = [];
     let mut offset = 0;
+
+    if (find_func(f_name).is_empty()) {
+        @util.die("unknown function: \{f_name}");
+    }
     let f = find_func(f_name).unwrap();
 
     // to_string() will differentiate all local functions with same name
@@ -554,50 +638,64 @@ fn make_closure(f_name: @typing.Name, target: Reg) -> Array[RvAsm] {
     // otherwise we will get print_int_2 rather than print_int
     let name = name_fn(f_name);
     for z in f.captured {
-        args.push((z, offset));
+        captured.push((z, offset));
         offset += 8;
     }
 
-    // Closure is compiled as:
-
-    // struct Closure { void* (*func)(void*); void* env;  };
-    // This has size 16
-
-    // We save a Closure* in register 'f_name',
-    // which currently holds a function pointer
-    if (args.length() != 0) {
-        let t = fake();
+    // Each closure is associated with a register, storing its environment
+    if (captured.length() != 0) {
+        let env = fake(Ptr);
 
         // void* a0 = malloc(env_size);
         result.push(Li(A0, offset.to_string()));
         result.push(Call("minimbt_malloc"));
-        result.push(Mv(t, A0));
         
-        // Copy environment to space at a0
-        let _ = args.mapi(fn (i, x) {
-            result.push(Sd(Fake(x.0), { base: A0, offset: i * 8 }));
-        });
+        // Copy environment to space at a1
+        for x in captured {
+            if (is_closure(x.0)) {
+                // pack_closure() affects asm
+                // so packing happens before make_closure() is inserted into asm
+                let closure = pack_closure(x.0);
 
-        // void* a0 = malloc(16);
-        result.push(Li(A0, "16"));
-        result.push(Call("minimbt_malloc"));
+                result.push(Sd(closure, { base: A0, offset: x.1 }));
+            } else {
+                result.push(Sd(Fake(x.0), { base: A0, offset: x.1 }));
+            }
+        };
 
-        // Save Closure in memory
+        result.push(Mv(env, A0));
         result.push(La(target, name));
-        result.push(Sd(target, { base: A0, offset: 0 }));
-        result.push(Sd(t, { base: A0, offset: 8 }));
-        result.push(Mv(target, A0));
+
+        // We hope to return environment in register a1, so always put it there
+        result.push(Mv(A1, A0));
+        add_closure(real(target), env);
     } else {
-        // void* a0 = malloc(16);
-        result.push(Li(A0, "16"));
-        result.push(Call("minimbt_malloc"));
-
-        // Save Closure in memory, but ignore env part
+        // No closure; just a normal function pointer
+        
         result.push(La(target, name));
-        result.push(Sd(target, { base: A0, offset: 0 }));
-        result.push(Mv(target, A0));
     }
     return result;
+}
+
+// This has side-effect of modifying global array asm[]
+
+// packs a closure into the form
+// struct Closure { void* (*ptr)(void*); void* env };
+// and return it in a fake register
+fn pack_closure(f_name: @types.Name) -> Reg {
+    let closure = fake(type_of(f_name));
+    
+    asm.push(Li(A0, "16"));
+    asm.push(Call("minimbt_malloc"));
+    asm.push(Sd(Fake(f_name), { base: A0, offset: 0 }));
+
+    if (has_env(f_name)) {
+        let env = get_env(f_name);
+        asm.push(Sd(env, { base: A0, offset: 8 }));
+    }
+
+    asm.push(Mv(closure, A0));
+    return closure;
 }
 
 // If referencing global things, make it correct
@@ -606,20 +704,23 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     for i = 0; i < asm.length(); i = i + 1 {
     
     match asm[i] { Mv(a, b) => {
-        let w = Some(a);
-        let r = Some(b);
-        
         // If "a" is global, then this is initialization of a global variable
-        if (is_fake(w) && @closure.glob.val.contains(real(w))) {
-            if (is_fake(r)) {
-                let f_name = real(r);
+        if (is_fake(a) && @closure.glob.val.contains(real(a))) {
+            if (is_fake(b)) {
+                let f_name = real(b);
 
-                // We are loading a function into "a"
-                // Make it a closure
-                if (find_func(f_name).is_empty().not()) {
-                    let closure = fake();
-                    let temp = fake();
-                    result.append(make_closure(f_name, closure)); 
+                if (is_closure(f_name)) {
+                    let temp = fake(Ptr);
+                    let closure = fake(type_of(f_name));
+                    println("closure \{closure} for \{a}")
+                    result.push(Li(A0, "16"));
+                    result.push(Call("minimbt_malloc"));
+                    result.push(Sd(Fake(f_name), { base: A0, offset: 0 }));
+                    if (has_env(f_name)) {
+                        let env = get_env(f_name);
+                        result.push(Sd(env, { base: A0, offset: 8 }));
+                    }
+                    result.push(Mv(closure, A0));
                     result.push(La(temp, a.to_string()));
                     result.push(Sd(closure, { base: temp, offset: 0 }));
                     continue;
@@ -628,14 +729,14 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
 
             // We are loading a normal value
             // We need to do "*a = b" instead of "a = b" for values
-            let temp = fake();
+            let temp = fake(Ptr);
             result.push(La(temp, a.to_string()));
             result.push(Sd(b, { base: temp, offset: 0 }));
             continue;
         }
 
         // If b is just normal, then nothing to do
-        if (is_fake(r).not()) {
+        if (is_fake(b).not()) {
             result.push(asm[i]);
             continue;
         }
@@ -643,15 +744,21 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
 
         // Now "a" is normal, but "b" can be something difficult to manage
     
-        // If b is a function, we need to make it a closure
-        let f_name = real(r);
+        let f_name = real(b);
 
+        // Discard this for a Unit
+        if (type_of(f_name) == Unit) {
+            continue;
+        }
+
+        // If b is a function, we need to make it a closure
         if (find_func(f_name).is_empty().not()) {
             // Note that this can very much be "mv a0, b"
             // And we use a0 intensively, so have to take care
-            let target = if (weak_eq(a, A0)) { fake() } else { a };
+            let target = if (weak_eq(a, A0)) { fake(type_of(f_name)) } else { a };
 
             result.append(make_closure(f_name, target));
+            result.push(Mv(a, target));
             continue;
         }
         
@@ -659,9 +766,16 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         // Hence b must be a global variable
         if (@closure.glob.val.contains(f_name)) {
             // We need to reform it as "a = *b"
-            let temp = fake();
+            let temp = fake(Ptr);
             result.push(La(temp, f_name.to_string()));
             result.push(Ld(a, { base: temp, offset: 0 }));
+            if (is_closure(f_name)) {
+                // Must unpack
+                let env = fake(Ptr);
+                result.push(Ld(env, { base: a, offset: 8 }));
+                result.push(Ld(a, { base: a, offset: 0 }));
+                add_closure(real(a), env);
+            }
             continue;
         }
 
@@ -718,7 +832,7 @@ pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
 
     @closure.FuncDef :: {
         name: "minimbt_main",
-        old_name: @typing.Name:: { name: Some("minimbt_main"), slot: -1 },
+        old_name: @types.Name:: { name: Some("minimbt_main"), slot: -1 },
         is_closure: false,
         args: [],
         captured: [],
@@ -727,23 +841,43 @@ pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
 }
 
 fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
+    // Don't care about external functions
+    if (externs.contains(fun.name._)) {
+        return AssemblyFunction :: { name: "", is_extern: true, body: [], regs: Map::new() };
+    }
+
     asm.clear();
     t_clear();
-    let ret = emit_expr(fun.body);
     let mut offset = 0;
 
     // Load arguments
     let load_arg: Array[RvAsm] = [];
+    let closures: Array[@types.Name] = [];
     let _ = fun.args.mapi(fn (i, x) {
+        if (is_closure(x)) {
+            closures.push(x);
+        }
         load_arg.push(Mv(Fake(x), Arg(i)));
     });
 
     // Load environment (if this is a closure)
     let env = Arg(fun.args.length());
     let _ = fun.captured.mapi(fn (i, x) {
+        if (is_closure(x)) {
+            closures.push(x);
+        }
         load_arg.push(Ld(Fake(x), { base: env, offset: i * 8 }));
     });
+    
+    // Unpack closures (if any)
+    for packed in closures {
+        let env = fake(Ptr);
+        load_arg.push(Ld(env, { base: Fake(packed), offset: 8 }));
+        load_arg.push(Ld(Fake(packed), { base: Fake(packed), offset: 0 }));
+        t.env_of[packed] = env;
+    }
 
+    let ret = emit_expr(fun.body);
 
     let pseudobody = [
         RvAsm::Label("\{fun.old_name}_tailrec"),
@@ -762,13 +896,16 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         if (t.funcs.filter(fn (x) { x.old_name.name == Some("main") }).length() > 0) {
             pseudobody.push(Call("main"));
         }
-    }
 
+        // return 0;
+        pseudobody.push(Mv(A0, Zero));
+    }
 
     regalloc(pseudobody, false);
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody);
+    println(body);
     t_clear();
     regalloc(body, true);
 
@@ -817,7 +954,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 }
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
-    t.funcs = [..program.fundefs];
+    t.funcs = program.fundefs.copy();
 
     // emit_main() relies on t.funcs to determine if there is call to init()
     t.funcs.push(emit_main(program.body));
@@ -840,97 +977,12 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     return arr;
 }
 
-// Removes useless instructions
-// If a register is written twice without any read in between, the first write can be ignored
-fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
-    fn defake(reg: Reg) -> Reg {
-        match reg {
-            Fake(name) => match t.regs[name] {
-                Some(w) => w
-                None => Spilt(9) //@util.die("Regalloc failed! \{reg}")
-            }
-            z => z
-        }
-    }
-
-    let last_read: Map[Reg, Int] = Map::new();
-    let last_written: Map[Reg, Int] = Map::new();
-    let mut used_labels: @immut/hashset.T[Label] = @immut/hashset.T::new();
-    let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
-
-    fn store_write(key: Option[Reg], v: Int) -> Unit {
-        match key {
-            Some(Fake(_)) => ();
-            _ => return;
-        }
-
-        let ind = defake(key.unwrap());
-
-        if (last_written[ind].is_empty().not()) {
-            let wtime = last_written[ind].unwrap();
-
-            if (last_read.contains(ind).not() || wtime > last_read[ind].unwrap()) {
-                to_delete = to_delete.add(wtime);
-            }
-        }
-
-        last_written[ind] = v;
-    }
-    
-    fn store_read(key: Option[Reg], v: Int) -> Unit {
-        if (key.is_empty()) {
-            return;
-        }
-
-        let ind = defake(key.unwrap());
-        last_read[ind] = v;
-    }
-
-    for i = 0; i < body.length(); i = i + 1 {
-        let asm = body[i];
-
-        // Must clear for jumps
-        // (No need to clear for function calls because all registers are preserved)
-        match asm {
-            J(label) | Bne(_, _, label) | Bgt(_, _, label) => {
-                used_labels = used_labels.add(label);
-                last_read.clear();
-                last_written.clear();
-            }
-            La(_, label) => {
-                used_labels = used_labels.add(label);
-            }
-            _ => ()
-        }
-
-        let used = reg_used(asm);
-        store_read(used.rs1, i);
-        store_read(used.rs2, i);
-        store_write(used.rd, i);
-    }
-
-    let opt = [];
-    for i = 0; i < body.length(); i = i + 1 {
-        if (to_delete.contains(i)) {
-            continue;
-        }
-
-        match body[i] {
-            Label(x) as label => if (used_labels.contains(x)) {
-                opt.push(label);
-            }
-            t => opt.push(t);
-        }
-    }
-
-    return opt;
-}
 
 pub struct AssemblyFunction {
     name : String
     is_extern: Bool
     body : Array[RvAsm]
-    mut regs: Map[@typing.Name, Reg]
+    mut regs: Map[@types.Name, Reg]
 }
 
 pub fn AssemblyFunction::output(

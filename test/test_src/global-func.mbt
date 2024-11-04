@@ -2,8 +2,19 @@ fn f(x: Int) -> Int {
     x + 1
 };
 
-let g: (Int) -> Int = f;
+let g: (((Int) -> Int) -> (Int) -> Int) -> (Int) -> Int = {
+    fn h(k) -> (Int) -> Int {
+        k(f)
+    };
+    h
+};
 
 fn main {
-    print_int(g(3))
+    fn k(f) {
+        fn w(x) {
+            f(x + 2)
+        };
+        w
+    };
+    print_int(g(k)(3))
 };

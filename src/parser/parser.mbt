@@ -447,33 +447,33 @@ pub fn parse(tks: Array[@lex.Token]) -> @types.Syntax {
 
 // Add internal things
 pub fn augment(s: @types.Syntax) -> @types.Syntax {
-    LetRec(@types.Fundef:: { name: ("print_int", Fun([Int], Unit)), args: [("__internal", Int)], body:
-        ApplyExtern("minimbt_print_int", [Var("__internal")])}, 
+    LetRec(@types.Fundef:: { name: ("print_int", Fun([Int], Unit)), args: [("x", Int)], body:
+        ApplyExtern("minimbt_print_int", [Var("x")])}, 
     LetRec(@types.Fundef:: { name: ("print_endline", Fun([], Unit)), args: [], body:
         ApplyExtern("minimbt_print_endline", [])},
-    LetRec(@types.Fundef:: { name: ("truncate", Fun([Double], Int)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_truncate", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("print_char", Fun([Int], Unit)), args: [("__internal", Int)], body:
-        ApplyExtern("minimbt_print_char", [Var("__internal")])}, 
+    LetRec(@types.Fundef:: { name: ("truncate", Fun([Double], Int)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_truncate", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("print_char", Fun([Int], Unit)), args: [("x", Int)], body:
+        ApplyExtern("minimbt_print_char", [Var("x")])}, 
     LetRec(@types.Fundef:: { name: ("read_int", Fun([], Int)), args: [], body:
         ApplyExtern("minimbt_read_int", [])},
     LetRec(@types.Fundef:: { name: ("read_char", Fun([], Int)), args: [], body:
         ApplyExtern("minimbt_read_char", [])},
-    LetRec(@types.Fundef:: { name: ("int_of_float", Fun([Double], Int)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_int_of_float", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("float_of_int", Fun([Int], Double)), args: [("__internal", Int)], body:
-        ApplyExtern("minimbt_float_of_int", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("sin", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_sin", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("cos", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_cos", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("atan", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_atan", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("abs_float", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_abs_float", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("sqrt", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_sqrt", [Var("__internal")])},
-    LetRec(@types.Fundef:: { name: ("floor", Fun([Double], Double)), args: [("__internal", Double)], body:
-        ApplyExtern("minimbt_floor", [Var("__internal")])}, s
+    LetRec(@types.Fundef:: { name: ("int_of_float", Fun([Double], Int)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_int_of_float", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("float_of_int", Fun([Int], Double)), args: [("x", Int)], body:
+        ApplyExtern("minimbt_float_of_int", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("sin", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_sin", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("cos", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_cos", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("atan", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_atan", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("abs_float", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_abs_float", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("sqrt", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_sqrt", [Var("x")])},
+    LetRec(@types.Fundef:: { name: ("floor", Fun([Double], Double)), args: [("x", Double)], body:
+        ApplyExtern("minimbt_floor", [Var("x")])}, s
     ))))))))))))))
 }

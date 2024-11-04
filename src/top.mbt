@@ -22,11 +22,11 @@ pub enum Syntax {
 } derive(Show, Eq)
 
 pub fn Syntax::hash(self: Syntax) -> Int {
-        return Hash::hash(self.to_string());
+    return Hash::hash(self.to_string());
 }
 
 pub fn Syntax::hash_combine(self: Syntax, hasher: Hasher) -> Unit {
-        return Hash::hash_combine(self.to_string(), hasher);
+    return Hash::hash_combine(self.to_string(), hasher);
 }
 
 pub enum Kind {
@@ -111,6 +111,14 @@ pub fn Type::op_equal(self : Type, other : Type) -> Bool {
         (Var(x), Var(y)) => x.val == y.val
         _ => false
     }
+}
+
+pub fn Type::hash(self: Type) -> Int {
+    return Hash::hash(self.to_string());
+}
+
+pub fn Type::hash_combine(self: Type, hasher: Hasher) -> Unit {
+    return Hash::hash_combine(self.to_string(), hasher);
 }
 
 pub fn Type::weak_equal(self : Type, other : Type) -> Bool {

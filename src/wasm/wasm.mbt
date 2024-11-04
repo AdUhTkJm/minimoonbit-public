@@ -79,6 +79,31 @@ fn var(a: @typing.Name) -> Wasm {
     }
 }
 
+fn make_closure(name: @typing.Name, a: @typing.Name) -> Array[Wasm] {
+    let result = [];
+    let mem = e.fake();
+
+    // struct Closure { int fn_handle; void* env; }
+
+    let fun = e.fdef[name].unwrap();
+    result.push(LocalSet(mem, DirectOutput("(call $minimbt_malloc (i32.const \{fun.captured.length() * 4}))")));
+    ignore(fun.captured.mapi(fn (i, z) {
+        if (e.ftable.contains(z)) {
+            result.append(make_closure(z, a))
+            result.push(Memset(i * 4, Var(mem), Var(a)));
+        } else {
+            result.push(Memset(i * 4, Var(mem), Var(z)));
+        }
+    }));
+
+    let closure = e.fake();
+    result.push(LocalSet(closure, DirectOutput("(call $minimbt_malloc (i32.const 8))")));
+    result.push(Memset(0, Var(closure), DirectOutput("(i32.const \{e.get_fn(name)})")));
+    result.push(Memset(4, Var(closure), Var(mem)));
+    result.push(LocalSet(a, Var(closure)));
+    return result;
+}
+
 // Returns the local variable where the result will be ready
 fn emit_expr(expr: @closure.Expr) -> Wasm {
     match expr {
@@ -91,28 +116,13 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             var(a)
         Let(a, val, w) => {
             let mut is_fn = false;
-            
             asm.push(DeclareLocal(a));
             match val {
                 // This is a function
                 Var(name) => if (e.ftable.contains(name)) {
                     is_fn = true;
 
-                    let mem = e.fake();
-
-                    // struct Closure { int fn_handle; void* env; }
-
-                    let fun = e.fdef[name].unwrap();
-                    asm.push(LocalSet(mem, DirectOutput("(call $minimbt_malloc (i32.const \{fun.captured.length() * 4}))")));
-                    ignore(fun.captured.mapi(fn (i, z) {
-                        asm.push(Memset(i * 4, Var(mem), Var(z)));
-                    }));
-
-                    let closure = e.fake();
-                    asm.push(LocalSet(closure, DirectOutput("(call $minimbt_malloc (i32.const 8))")));
-                    asm.push(Memset(0, Var(closure), DirectOutput("(i32.const \{e.get_fn(name)})")));
-                    asm.push(Memset(4, Var(closure), Var(mem)));
-                    asm.push(LocalSet(a, Var(closure)));
+                    asm.append(make_closure(name, a));
                 }
                 _ => ()
             }

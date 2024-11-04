@@ -71,7 +71,7 @@ pub enum Reg {
     Ft9
     Ft10
     Ft11
-    Fake(@typing.Name)
+    Fake(@types.Name)
     Arg(Int)
     Spilt(Int)
 } derive(Eq, Compare, Hash)
@@ -219,3 +219,93 @@ pub let freg_callee_saved_list : Array[Reg] = freg_saved_list
 
 pub let freg_allocatable_list : Array[Reg] = freg_callee_saved_list +
     freg_caller_saved_list
+
+// rd is the register written to, rs1 and rs2 are the ones read from
+struct RegFile {
+    rd: Option[Reg]
+    rs1: Option[Reg]
+    rs2: Option[Reg]
+}
+
+fn reg_used(asm: RvAsm) -> RegFile {
+    match asm {
+        Add(rd, rs1, rs2) |
+        Sub(rd, rs1, rs2) |
+        Xor(rd, rs1, rs2) |
+        Or(rd, rs1, rs2) |
+        And(rd, rs1, rs2) |
+        Sll(rd, rs1, rs2) |
+        Srl(rd, rs1, rs2) |
+        Sra(rd, rs1, rs2) |
+        Slt(rd, rs1, rs2) |
+        Sltu(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
+
+        Addi(rd, rs1, _) |
+        Xori(rd, rs1, _) |
+        Ori(rd, rs1, _) |
+        Andi(rd, rs1, _) |
+        Slli(rd, rs1, _) |
+        Srli(rd, rs1, _) |
+        Srai(rd, rs1, _) |
+        Slti(rd, rs1, _) |
+        Sltiu(rd, rs1, _) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
+
+        Lb(rd, { base: rs1, offset: _ }) |
+        Lh(rd, { base: rs1, offset: _ }) |
+        Lw(rd, { base: rs1, offset: _ }) |
+        Ld(rd, { base: rs1, offset: _ }) |
+        Lbu(rd, { base: rs1, offset: _ }) |
+        Lhu(rd, { base: rs1, offset: _ }) |
+        Lwu(rd, { base: rs1, offset: _ }) |
+        Fld(rd, { base: rs1, offset: _ })=> { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
+
+        // Here rd is unchanged, so only a read
+        Sb(rd, { base: rs1, offset: _ }) |
+        Sh(rd, { base: rs1, offset: _ }) |
+        Sw(rd, { base: rs1, offset: _ }) |
+        Sd(rd, { base: rs1, offset: _ }) |
+        Fsd(rd, { base: rs1, offset: _ }) => { rd : None, rs1 : Some(rs1), rs2 : Some(rd) }
+
+        Beq(rs1, rs2, _) |
+        Bne(rs1, rs2, _) |
+        Blt(rs1, rs2, _) |
+        Bge(rs1, rs2, _) |
+        Ble(rs1, rs2, _) |
+        Bgt(rs1, rs2, _) |
+        Bltu(rs1, rs2, _) |
+        Bgeu(rs1, rs2, _) => { rd : None, rs1 : Some(rs1), rs2 : Some(rs2) }
+        
+        Mul(rd, rs1, rs2) |
+        Mulw(rd, rs1, rs2) |
+        Mulh(rd, rs1, rs2) |
+        Mulhsu(rd, rs1, rs2) |
+        Mulhu(rd, rs1, rs2) |
+        Div(rd, rs1, rs2) |
+        Divw(rd, rs1, rs2) |
+        Divu(rd, rs1, rs2) |
+        Rem(rd, rs1, rs2) |
+        Remw(rd, rs1, rs2) |
+        Remu(rd, rs1, rs2) |
+        FaddD(rd, rs1, rs2) |
+        FsubD(rd, rs1, rs2) |
+        FmulD(rd, rs1, rs2) |
+        FeqD(rd, rs1, rs2) |
+        FleD(rd, rs1, rs2) |
+        FdivD(rd, rs1, rs2) => { rd : Some(rd), rs1 : Some(rs1), rs2 : Some(rs2) }
+
+        La(rd, _) |
+        Li(rd, _) => { rd : Some(rd), rs1 : None, rs2 : None }
+
+        Neg(rd, rs1) |
+        FnegD(rd, rs1) |
+        FmvD(rd, rs1) |
+        FmvDX(rd, rs1) |
+        FmvXD(rd, rs1) |
+        Mv(rd, rs1) => { rd : Some(rd), rs1 : Some(rs1), rs2 : None }
+
+        Nop | Ecall | J(_) | Call(_) | Tail(_) | Ret | Label(_) | Comment(_)
+            => { rd : None, rs1 : None, rs2 : None }
+        
+        Jalr(rs1) | Jr(rs1) => { rd : None, rs1 : Some(rs1), rs2 : None }
+    }
+}

@@ -3,7 +3,7 @@ typealias Set = @immut/hashset.T[@knf.Name]
 
 // All global variables and functions
 pub let glob: Ref[Set] = Ref::new(Set::new());
-// GLobal variables only
+// Global variables only
 pub let globvar: Ref[Set] = Ref::new(Set::new());
 
 
@@ -122,9 +122,11 @@ pub fn convert(knf: @knf.Knf) -> Expr {
                 for i = 0; i < funcs.length(); i = i + 1 {
                     let x = funcs[i];
                     if (x.old_name.name == Some("init")) {
+                        let init = Name::name_only("__init_\{f_name}");
+                        @knf.typing[init] = Fun([], Unit);
                         funcs[i] = {
                             ..x,
-                            body: Let(Name::name_only("__init_\{f_name}"), x.body, convert(syn))
+                            body: Let(init, x.body, convert(syn))
                         };
                         return convert(w);
                     }
@@ -157,5 +159,6 @@ pub fn closure(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
     globvar.val = global_vars(prog);
     let body = convert(prog);
+    println(body);
     return Program::{ fundefs: funcs, body: body };
 }

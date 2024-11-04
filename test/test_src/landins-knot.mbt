@@ -12,7 +12,8 @@ let factorial: (Int) -> Int = {
         fn h(x) {
             if (x == 0) { 1 }
             else { x * f(x - 1) }
-        };  h
+        };
+        h
     };
     landins_knot(g)
 };

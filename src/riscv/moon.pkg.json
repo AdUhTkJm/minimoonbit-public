@@ -3,10 +3,11 @@
     "moonbitlang/minimbt/closure",
     {
       "path": "moonbitlang/minimbt",
-      "alias": "typing"
+      "alias": "types"
     },
     "moonbitlang/minimbt/util",
     "lijunchen/unstable_io/env",
-    "moonbitlang/minimbt/knf"
+    "moonbitlang/minimbt/knf",
+    "moonbitlang/minimbt/typing"
   ]
 }

@@ -66,8 +66,17 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
 
 let eglob: Map[String, @types.Type] = Map::new();
 
+let typing: Map[@types.Syntax, @types.Type] = Map::new();
+
+pub fn lookup(syntax: @types.Syntax) -> @types.Type {
+    match typing[syntax] {
+        Some(x) => x
+        None => @util.die("type: no known type of \{syntax}");
+    }
+}
+
 pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~global: Bool = false) -> @types.Type {
-    match ast {
+    let result: @types.Type = match ast {
         Int(_) => Int
         Double(_) => Double
         Bool(_) => Bool
@@ -186,7 +195,9 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             let _ = args.map(fn (x) { infer(x, env) });
             Var(Ref::new(None))
         }
-    }
+    };
+    typing[ast] = result;
+    result
 }
 
 fn resolve(ty: @types.Type) -> @types.Type {

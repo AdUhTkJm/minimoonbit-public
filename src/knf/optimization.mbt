@@ -57,7 +57,7 @@ fn union(a: @immut/hashset.T[@types.Name], b: @immut/hashset.T[@types.Name]) -> 
     l;
 }
 
-fn union_names(a: @immut/hashset.T[String], b: @immut/hashset.T[String]) -> @immut/hashset.T[String] {
+fn union_names(a: @immut/hashset.T[(String, @types.Type)], b: @immut/hashset.T[(String, @types.Type)]) -> @immut/hashset.T[(String, @types.Type)] {
     let mut l = a;
     for z in b {
         l = l.add(z);
@@ -78,10 +78,10 @@ pub fn delete_refer(x: Constant) -> Constant {
         t => t
     }
 }
-pub fn value_of(name: Name) -> Option[Constant] {
+pub fn value_of(name: Name) -> Constant {
     match e.value[name] {
-        Some(x) => Some(delete_refer(x))
-        None => None
+        Some(x) => delete_refer(x)
+        None => Unknown
     }
 }
 
@@ -145,7 +145,8 @@ fn side_effect_free(knf: Knf) -> Bool {
             }
             side_effect_free(w);
         }
-        Apply(_, _) => false     // We know nothing about function content
+        Apply(f, _) =>
+            e.is_se_free[f] == Some(true)
         ExternalFunctionApplication(name, _) =>
             ["read_int", "read_char", "print_int", "print_char",
             "print_endline", "minimbt_malloc", "minimbt_create_ptr_array"].contains(name)
@@ -180,7 +181,9 @@ fn used(name: Name) -> Bool {
 fn opt_remove_unused_(knf: Knf) -> Knf {
     match knf {
         Let(a, val, w) => {
+            // println("let \{a} = \{val}\n(used: \{used(a)}, se-free: \{side_effect_free(val)})\n\n");
             if (used(a).not() && side_effect_free(val)) {
+                println("opt-remove: let \{a} = \{val}")
                 opt_remove_unused_(w);
             } else {
                 Let(a, opt_remove_unused_(val), opt_remove_unused_(w));
@@ -228,68 +231,74 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
             IfEq(a, b, opt_const_fold(body), opt_const_fold(otherwise))
         Add(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Int(x)), Some(Int(y))) => Int(x + y)
+                ((Int(x)), (Int(y))) => Int(x + y)
                 _ => Add(a, b)
             }
         }
         Sub(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Int(x)), Some(Int(y))) => Int(x - y)
+                ((Int(x)), (Int(y))) => Int(x - y)
                 _ => Sub(a, b)
             }
         }
         Mul(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Int(x)), Some(Int(y))) => Int(x * y)
+                ((Int(x)), (Int(y))) => Int(x * y)
                 _ => Mul(a, b)
             }
         }
         Div(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Int(x)), Some(Int(y))) => Int(x / y)
+                ((Int(x)), (Int(y))) => Int(x / y)
                 _ => Div(a, b)
             }
         }
         Neg(a) => {
             match (value_of(a)) {
-                (Some(Int(x))) => Int(-x)
+                ((Int(x))) => Int(-x)
                 _ => Neg(a)
             }
         }
         FAdd(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Double(x)), Some(Double(y))) => Double(x + y)
+                ((Double(x)), (Double(y))) => Double(x + y)
                 _ => FAdd(a, b)
             }
         }
         FSub(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Double(x)), Some(Double(y))) => Double(x - y)
+                ((Double(x)), (Double(y))) => Double(x - y)
                 _ => FSub(a, b)
             }
         }
         FMul(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Double(x)), Some(Double(y))) => Double(x * y)
+                (Double(x), Double(y)) => Double(x * y)
                 _ => FMul(a, b)
             }
         }
         FDiv(a, b) => {
             match (value_of(a), value_of(b)) {
-                (Some(Double(x)), Some(Double(y))) => Double(x / y)
+                (Double(x), Double(y)) => Double(x / y)
                 _ => FDiv(a, b)
             }
         }
         FNeg(a) => {
             match (value_of(a)) {
-                (Some(Double(x))) => Double(-x)
+                (Double(x)) => Double(-x)
                 _ => FNeg(a)
             }
         }
         Var(x) => match value_of(x) {
-            Some(Int(x)) => Int(x)
-            Some(Double(x)) => Double(x)
+            Int(x) => Int(x)
+            Double(x) => Double(x)
             _ => Var(x)
+        }
+        Apply(x, args) => {
+            match value_of(x) {
+                Fun(f) => Apply(f, args);
+                _ => Apply(x, args)
+            }
         }
         t => t
     }
@@ -346,7 +355,6 @@ pub fn opt_tail_rec(knf: Knf) -> Knf {
 
 pub fn opt(knf: Knf) -> Knf {
     prepare_fundef(knf);
-    get_used(knf);
 
     return knf
     |> opt_const_fold
