@@ -791,30 +791,6 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
-fn remove_unused(body: Array[RvAsm]) -> Unit {
-    let mut i = 0;
-    let asm = body.copy();
-    body.clear();
-    while (i < asm.length()) {
-        match asm[i] {
-            Addi(a, b, 0) => {
-                // Remove "addi a, a, 0"
-                if (weak_eq(a, b).not()) {
-                    body.push(asm[i]);
-                }
-            }
-            Mv(a, b) => {
-                // Remove "mv a, a"
-                if (weak_eq(a, b).not()) {
-                    body.push(asm[i]);
-                }
-            }
-            _ => body.push(asm[i])
-        }
-        i += 1;
-    }
-}
-
 // Outputs labels for global variables
 pub fn emit_global(logger: Logger) -> Unit {
     logger.write_string(".section .data\n");
@@ -844,7 +820,7 @@ pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
 fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Don't care about external functions
     if (externs.contains(fun.name._)) {
-        return AssemblyFunction :: { name: "", is_extern: true, body: [], regs: Map::new() };
+        return AssemblyFunction :: { name: "", is_extern: true, body: [] };
     }
 
     asm.clear();
@@ -909,9 +885,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     t_clear();
     regalloc(body, true);
 
-    let opt = opt_remove_useless(body);
-    t_clear();
-    regalloc(opt, true);
+    let opt = body
+        |> consolidate
+        |> opt_remove_identical
+        |> opt_peephole_2
+        |> opt_inline_var
+        |> opt_remove_identical
+        |> opt_remove_useless;
 
     offset = t.offset;
 
@@ -930,7 +910,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         ..opt,
         ..post
     ];
-    remove_unused(full_body);
 
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
@@ -948,8 +927,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             ..full_body,
             Addi(Sp, Sp, offset),
             Ret
-        ],
-        regs: Map::from_iter(t.regs.iter()),
+        ]
     }
 }
 
@@ -982,7 +960,6 @@ pub struct AssemblyFunction {
     name : String
     is_extern: Bool
     body : Array[RvAsm]
-    mut regs: Map[@types.Name, Reg]
 }
 
 pub fn AssemblyFunction::output(
@@ -994,8 +971,6 @@ pub fn AssemblyFunction::output(
     if (self.is_extern) {
         return;
     }
-
-    current_func.val = self;
 
     let name = self.name;
     logger.write_string(".global \{name}\n")

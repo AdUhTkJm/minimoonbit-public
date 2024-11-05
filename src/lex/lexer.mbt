@@ -48,7 +48,7 @@ pub fn Token::is(self: Token, other: Token) -> Bool {
 }
 
 
-fn is_digit(c: Char) -> Bool {
+pub fn is_digit(c: Char) -> Bool {
     return ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].contains(c);
 }
 

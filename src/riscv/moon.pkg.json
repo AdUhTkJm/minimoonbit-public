@@ -8,6 +8,7 @@
     "moonbitlang/minimbt/util",
     "lijunchen/unstable_io/env",
     "moonbitlang/minimbt/knf",
-    "moonbitlang/minimbt/typing"
+    "moonbitlang/minimbt/typing",
+    "moonbitlang/minimbt/lex"
   ]
 }

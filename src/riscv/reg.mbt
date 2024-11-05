@@ -98,9 +98,6 @@ pub let reg_caller_saved_list : Array[Reg] = reg_temp_list + reg_arg_list
 pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
 
 pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
-
-
-let current_func: Ref[AssemblyFunction] = Ref::new({ name: "", body: [], regs: Map::new(), is_extern: false });
 pub fn Reg::to_string(self : Reg) -> String {
     match self {
         Zero => "zero"
@@ -167,13 +164,8 @@ pub fn Reg::to_string(self : Reg) -> String {
         Ft9 => "ft9"
         Ft10 => "ft10"
         Ft11 => "ft11"
-        Fake(name) =>
-            if (current_func.val.regs.contains(name)) {
-                current_func.val.regs[name].unwrap().to_string()
-            } else {
-                name.to_string()
-            }
-        Arg(i) => reg_arg_list[i].to_string()
+        Fake(name) => name.to_string()
+        Arg(i) => "arg.\{i}"
         Spilt(i) => "spilt.\{i}"
     }
 }
@@ -307,5 +299,79 @@ fn reg_used(asm: RvAsm) -> RegFile {
             => { rd : None, rs1 : None, rs2 : None }
         
         Jalr(rs1) | Jr(rs1) => { rd : None, rs1 : Some(rs1), rs2 : None }
+    }
+}
+
+
+fn register_rename(asm: RvAsm, rs_fn: (Reg) -> Reg, rd_fn: (Reg) -> Reg) -> RvAsm {
+    match asm {
+        Add(rd, rs1, rs2) => Add(rd_fn(rd), rs_fn(rs1), rs_fn(rs2));
+        Sub(rd, rs1, rs2) => Sub(rd_fn(rd), rs_fn(rs1), rs_fn(rs2));
+        Xor(rd, rs1, rs2) => Xor(rd_fn(rd), rs_fn(rs1), rs_fn(rs2));
+        Or(rd, rs1, rs2) => Or(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        And(rd, rs1, rs2) => And(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Sll(rd, rs1, rs2) => Sll(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Srl(rd, rs1, rs2) => Srl(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Sra(rd, rs1, rs2) => Sra(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Slt(rd, rs1, rs2) => Slt(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Sltu(rd, rs1, rs2) => Sltu(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Addi(rd, rs1, imm) => Addi(rd_fn(rd), rs_fn(rs1), imm)
+        Xori(rd, rs1, imm) => Xori(rd_fn(rd), rs_fn(rs1), imm)
+        Ori(rd, rs1, imm) => Ori(rd_fn(rd), rs_fn(rs1), imm)
+        Andi(rd, rs1, imm) => Andi(rd_fn(rd), rs_fn(rs1), imm)
+        Slli(rd, rs1, imm) => Slli(rd_fn(rd), rs_fn(rs1), imm)
+        Srli(rd, rs1, imm) => Srli(rd_fn(rd), rs_fn(rs1), imm)
+        Srai(rd, rs1, imm) => Srai(rd_fn(rd), rs_fn(rs1), imm)
+        Slti(rd, rs1, imm) => Slti(rd_fn(rd), rs_fn(rs1), imm)
+        Sltiu(rd, rs1, imm) => Sltiu(rd_fn(rd), rs_fn(rs1), imm)
+        Lb(rd, { base: rs1, offset: offset }) => Lb(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Lh(rd, { base: rs1, offset: offset }) => Lh(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Lw(rd, { base: rs1, offset: offset }) => Lw(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Ld(rd, { base: rs1, offset: offset }) => Ld(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Lbu(rd, { base: rs1, offset: offset }) => Lbu(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Lhu(rd, { base: rs1, offset: offset }) => Lhu(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Lwu(rd, { base: rs1, offset: offset }) => Lwu(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Sb(rd, { base: rs1, offset: offset }) => Sb(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Sh(rd, { base: rs1, offset: offset }) => Sh(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Sw(rd, { base: rs1, offset: offset }) => Sw(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Sd(rd, { base: rs1, offset: offset }) => Sd(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Beq(rs1, rs2, label) => Beq(rs_fn(rs1), rs_fn(rs2), label)
+        Bne(rs1, rs2, label) => Bne(rs_fn(rs1), rs_fn(rs2), label)
+        Blt(rs1, rs2, label) => Blt(rs_fn(rs1), rs_fn(rs2), label)
+        Bge(rs1, rs2, label) => Bge(rs_fn(rs1), rs_fn(rs2), label)
+        Ble(rs1, rs2, label) => Ble(rs_fn(rs1), rs_fn(rs2), label)
+        Bgt(rs1, rs2, label) => Bgt(rs_fn(rs1), rs_fn(rs2), label)
+        Bltu(rs1, rs2, label) => Bltu(rs_fn(rs1), rs_fn(rs2), label)
+        Bgeu(rs1, rs2, label) => Bgeu(rs_fn(rs1), rs_fn(rs2), label)
+        Mul(rd, rs1, rs2) => Mul(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Mulw(rd, rs1, rs2) => Mulw(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Mulh(rd, rs1, rs2) => Mulh(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Mulhsu(rd, rs1, rs2) => Mulhsu(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Mulhu(rd, rs1, rs2) => Mulhu(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Div(rd, rs1, rs2) => Div(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Divw(rd, rs1, rs2) => Divw(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Divu(rd, rs1, rs2) => Divu(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Rem(rd, rs1, rs2) => Rem(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Remw(rd, rs1, rs2) => Remw(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Remu(rd, rs1, rs2) => Remu(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FaddD(rd, rs1, rs2) => FaddD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FsubD(rd, rs1, rs2) => FsubD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FmulD(rd, rs1, rs2) => FmulD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FdivD(rd, rs1, rs2) => FdivD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        Fld(rd, { base: rs1, offset: offset }) => Fld(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        Fsd(rd, { base: rs1, offset: offset }) => Fsd(rd_fn(rd), { base: rs_fn(rs1), offset: offset })
+        FeqD(rd, rs1, rs2) => FeqD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FleD(rd, rs1, rs2) => FleD(rd_fn(rd), rs_fn(rs1), rs_fn(rs2))
+        FmvDX(rd, rs1) => FmvDX(rd_fn(rd), rs_fn(rs1))
+        FmvXD(rd, rs1) => FmvXD(rd_fn(rd), rs_fn(rs1))
+        La(rd, label) => La(rd_fn(rd), label)
+        Li(rd, imm) => Li(rd_fn(rd), imm)
+        Neg(rd, rs1) => Neg(rd_fn(rd), rs_fn(rs1))
+        FnegD(rd, rs1) => FnegD(rd_fn(rd), rs_fn(rs1))
+        Mv(rd, rs1) => Mv(rd_fn(rd), rs_fn(rs1))
+        FmvD(rd, rs1) => FmvD(rd_fn(rd), rs_fn(rs1))
+        Jalr(rs1) => Jalr(rs_fn(rs1))
+        Jr(rs1) => Jr(rs_fn(rs1))
+        t => t
     }
 }
