@@ -322,7 +322,7 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
 
             match knf {
                 IfLe(_) => IfLe(a, b, left, right);
-                IfEq(_) => IfLe(a, b, left, right);
+                IfEq(_) => IfEq(a, b, left, right);
                 _ => @util.die("Impossible")
             }
         }
@@ -358,5 +358,5 @@ pub fn opt(knf: Knf) -> Knf {
     |> opt_const_fold
     |> opt_remove_unused
     // TODO: turn all closure into non-closure
-    // |> opt_tail_rec;
+    |> opt_tail_rec;
 }

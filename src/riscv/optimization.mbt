@@ -56,6 +56,11 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
                 last_written.clear();
             }
             La(_, label) => {
+                // The only kind of label that might jump backwards
+                if (label._.ends_with("tailrec")) {
+                    last_read.clear();
+                    last_written.clear();
+                }
                 used_labels = used_labels.add(label);
             }
             _ => ()
@@ -65,6 +70,12 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
         store_read(used.rs1, i);
         store_read(used.rs2, i);
         store_write(used.rd, i);
+    }
+
+    // Reached the end; store_write() for every register
+    // so that registers written once and never read will be eliminated
+    for x in reg_allocatable_list {
+        store_write(Some(x), body.length());
     }
 
     let opt = [];
@@ -155,6 +166,26 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                 if (a == d && v.is_empty().not() && v.unwrap() <= 2048 && v.unwrap() > -2048) {
                     result.push(body[i]);
                     result.push(Addi(b, c, -v.unwrap()));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Li(a, imm), Bgt(b, c, label)) => {
+                // li a, 0; bgt b, a, label => bgt b, zero, label
+                
+                if (a == c && imm == "0") {
+                    result.push(body[i]);
+                    result.push(Bgt(b, Zero, label));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Li(a, imm), Bne(b, c, label)) => {
+                // li a, 0; bne b, a, label => bgt b, zero, label
+                
+                if (a == c && imm == "0") {
+                    result.push(body[i]);
+                    result.push(Bne(b, Zero, label));
                     i += 2;
                     continue;
                 }

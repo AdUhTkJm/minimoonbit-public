@@ -263,6 +263,6 @@ pub fn KnfEnv::convert(self: KnfEnv, s: @types.Syntax) -> Knf {
     for x in self.globals {
         self.add(x.0, x.1);
     }
-
+    
     self.to_knf(s);
 }

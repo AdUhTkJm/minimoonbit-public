@@ -31,9 +31,6 @@ struct T {
     // All functions
     mut funcs: Array[@closure.FuncDef]
 
-    // All register used in a function
-    mut all_used: @immut/sorted_set.T[Reg]
-
     // The environment is stored in Reg for the closure called @types.Name
     mut env_of: Map[@types.Name, Reg];
 }
@@ -48,7 +45,6 @@ fn T::new() -> T {
         rcnt: 1000000,
         labelcount: 0,
         funcs: [],
-        all_used: @immut/sorted_set.T::new(),
         env_of: Map::new(),
     }
 }
@@ -83,7 +79,6 @@ fn t_clear() -> Unit {
     t.occupy = Map::new();
     t.first_used = Map::new();
     t.last_used = Map::new();
-    t.all_used = @immut/sorted_set.T::new();
     t.regs = Map::new();
 }
 
@@ -100,7 +95,6 @@ fn reg(r: @types.Name) -> Unit {
 
         t.occupy[z] = r;
         t.regs[r] = z;
-        t.all_used = t.all_used.add(z);
         
         return;
     }
@@ -540,7 +534,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 fake(Unit);
             }
         }
-        Call(name, args) | CallTailRec(name, args) => {
+        Call(name, args) => {
             // Must do it before we load arguments
             // because pack_closure() tampers a0
             let closures = {};
@@ -587,12 +581,53 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
                     asm.push(Call(name_fn(x)));
                 }
-                _ => @util.die("emit: calling non-function in emit_expr() \{@knf.value_of(name)}")
+                _ => @util.die("emit: calling non-function: \{@knf.value_of(name)}")
             }
 
             let rv = fake(match type_of(name) {
                 Fun(_, ret_ty) => ret_ty
-                _ => @util.die("emit: calling non-function in emit_expr() \{type_of(name)}")
+                _ => @util.die("emit: calling non-function: \{type_of(name)}")
+            });
+            if (is_closure(real(rv))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, A1));
+                add_closure(real(rv), env);
+            }
+            asm.push(Mv(rv, A0));
+            rv
+        }
+        CallTailRec(name, args) => {
+            match @knf.value_of(name) {
+                // We must know what this is to do a tail-call
+                Fun(x) => {
+                    let fi = t.funcs.search_by(fn (w) { w.old_name == x }).unwrap();
+                    let f = t.funcs[fi];
+
+                    let _ = args.mapi(fn (i, x) {
+                        if (is_closure(x)) {
+                            // This will eventually be optimized;
+                            // but this assures regalloc() behaves correctly
+                            asm.push(Mv(get_env(x), get_env(x)));
+                        }
+                        asm.push(Mv(Fake(f.args[i]), Fake(x)));
+                    });
+
+                    // Same thing here
+                    let _ = f.captured.map(fn (x) {
+                        if (is_closure(x)) {
+                            asm.push(Mv(get_env(x), get_env(x)));
+                        }
+                        asm.push(Mv(Fake(x), Fake(x)));
+                    });
+
+                    asm.push(J("\{f.old_name}_tailrec"));
+                }
+                _ => @util.die("emit: calling unknown function in tail-call: \{@knf.value_of(name)}")
+            }
+
+            let rv = fake(match type_of(name) {
+                Fun(_, ret_ty) => ret_ty
+                _ => @util.die("emit: calling non-function: \{type_of(name)}")
             });
             if (is_closure(real(rv))) {
                 let env = fake(Ptr);
@@ -857,8 +892,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let ret = emit_expr(fun.body);
 
     let pseudobody = [
-        RvAsm::Label("\{fun.old_name}_tailrec"),
         ..load_arg,
+        RvAsm::Label("\{fun.old_name}_tailrec"),
         ..asm,
         Mv(A0, ret),
     ];
@@ -890,7 +925,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         |> opt_remove_identical
         |> opt_peephole_2
         |> opt_inline_var
-        |> opt_remove_identical
+        |> opt_remove_identical     // Remove again because inlining
         |> opt_remove_useless;
 
     offset = t.offset;
@@ -899,7 +934,26 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let pre: Array[RvAsm] = [];
     let post: Array[RvAsm] = [];
 
-    for r in [Ra, ..t.all_used] {
+    let mut all_used = @immut/hashset.from_array([Ra]);
+    for x in opt {
+        let file = reg_used(x);
+        if (file.rd.is_empty().not()) {
+            all_used = all_used.add(file.rd.unwrap());
+        }
+        if (file.rs1.is_empty().not()) {
+            all_used = all_used.add(file.rs1.unwrap());
+        }
+        if (file.rs2.is_empty().not()) {
+            all_used = all_used.add(file.rs2.unwrap());
+        }
+    }
+
+    for r in all_used {
+        // Don't preserve a0, a1 etc.
+        if (reg_allocatable_list.contains(r).not() && r != Ra) {
+            continue;
+        }
+
         pre.push(Sd(r, { base: Sp, offset: offset }));
         post.push(Ld(r, { base: Sp, offset: offset }));
         offset += 8;
