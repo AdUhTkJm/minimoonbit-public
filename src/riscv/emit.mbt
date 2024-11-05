@@ -377,6 +377,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                     
                     let env = fake(Ptr);
                     asm.push(Ld(env, { base: closure, offset: 8 }));
+                    asm.push(Mv(A1, env));
                     add_closure(real(r), env);
                 }
                 _ => {
@@ -712,7 +713,6 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
                 if (is_closure(f_name)) {
                     let temp = fake(Ptr);
                     let closure = fake(type_of(f_name));
-                    println("closure \{closure} for \{a}")
                     result.push(Li(A0, "16"));
                     result.push(Call("minimbt_malloc"));
                     result.push(Sd(Fake(f_name), { base: A0, offset: 0 }));
@@ -773,6 +773,7 @@ pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
                 // Must unpack
                 let env = fake(Ptr);
                 result.push(Ld(env, { base: a, offset: 8 }));
+                result.push(Mv(A1, env));
                 result.push(Ld(a, { base: a, offset: 0 }));
                 add_closure(real(a), env);
             }
@@ -905,7 +906,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody);
-    println(body);
     t_clear();
     regalloc(body, true);
 

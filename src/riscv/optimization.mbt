@@ -50,7 +50,7 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
         // Must clear for jumps
         // (No need to clear for function calls because all registers are preserved)
         match asm {
-            J(label) | Bne(_, _, label) | Bgt(_, _, label) => {
+            J(label) | Bne(_, _, label) | Bgt(_, _, label) | Beq(_, _, label) => {
                 used_labels = used_labels.add(label);
                 last_read.clear();
                 last_written.clear();

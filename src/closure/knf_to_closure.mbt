@@ -159,6 +159,5 @@ pub fn closure(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
     globvar.val = global_vars(prog);
     let body = convert(prog);
-    println(body);
     return Program::{ fundefs: funcs, body: body };
 }

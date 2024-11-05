@@ -181,9 +181,7 @@ fn used(name: Name) -> Bool {
 fn opt_remove_unused_(knf: Knf) -> Knf {
     match knf {
         Let(a, val, w) => {
-            // println("let \{a} = \{val}\n(used: \{used(a)}, se-free: \{side_effect_free(val)})\n\n");
             if (used(a).not() && side_effect_free(val)) {
-                println("opt-remove: let \{a} = \{val}")
                 opt_remove_unused_(w);
             } else {
                 Let(a, opt_remove_unused_(val), opt_remove_unused_(w));
