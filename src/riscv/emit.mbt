@@ -166,7 +166,7 @@ fn type_of(name: @types.Name) -> @types.Type {
     }
 }
 
-fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
+fn regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
     let to_alloc: Array[@types.Name] = [];
 
     // Record all assigned registers
@@ -177,13 +177,14 @@ fn regalloc(asm: Array[RvAsm], tidy: Bool) -> Unit {
             store_first(used.rd, i);
             to_alloc.push(real(used.rd.unwrap()));
         }
+        store_last(used.rd, i);
         store_last(used.rs1, i);
         store_last(used.rs2, i);
     }
 
     // After tidy(), remove unused Names
     // otherwise their last_used won't exist and makes reg() fail to work
-    if (tidy) {
+    if (tidy_unused) {
         let no_use: Array[@types.Name] = [];
         for x in to_alloc {
             if (t.last_used.contains(x).not()) {
@@ -919,6 +920,12 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let body = tidy(pseudobody);
     t_clear();
     regalloc(body, true);
+    println(fun.old_name);
+    println("");
+    println(body);
+    println("");
+    println(body |> consolidate);
+    println("\n\n");
 
     let opt = body
         |> consolidate
