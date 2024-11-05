@@ -221,7 +221,10 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
 
         if (file.rd.is_empty().not()) {
             let invalid = file.rd.unwrap();
-            for k, v in ref {
+            let copy = Map::from_iter(ref.iter());
+
+            // Can't just remove on ref; otherwise Iter gets invalidated
+            for k, v in copy {
                 if (k == invalid || v == invalid) {
                     ref.remove(k);
                 }
@@ -231,18 +234,22 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         match body[i] {
             Mv(a, b) => ref[a] = b;
 
-            Label(_) | J(_) | Jalr(_) | Bne(_) | Beq(_) |
+            Label(_) | J(_) | Bne(_) | Beq(_) |
             Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
             Bltu(_) => ref.clear();
 
-            Call(_) => {
-                ref.remove(A0);
-                ref.remove(A1);
+            Call(_) | Jalr(_) => {
+                let copy = Map::from_iter(ref.iter());
+                for k, v in copy {
+                    if (k == A0 || v == A0 || k == A1 || v == A1) {
+                        ref.remove(k);
+                    }
+                }
             }
 
             _ => ();
         }
-        
+
         i += 1;
     }
     return result;
