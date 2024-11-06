@@ -221,8 +221,11 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
         }
         LetTuple(arr, x, w) =>
             LetTuple(arr, x, opt_const_fold(w))
-        LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
+        LetRec({ name: name, ty: ty, args: args, body: syn }, w) => {
+            e.value[name] = Fun(name);
+
             LetRec({ name: name, ty: ty, args: args, body: opt_const_fold(syn) }, opt_const_fold(w))
+        }
         IfLe(a, b, body, otherwise) =>
             IfLe(a, b, opt_const_fold(body), opt_const_fold(otherwise))
         IfEq(a, b, body, otherwise) =>
@@ -323,19 +326,19 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
             match knf {
                 IfLe(_) => IfLe(a, b, left, right);
                 IfEq(_) => IfEq(a, b, left, right);
-                _ => @util.die("Impossible")
+                _ => @util.die("opt-tail: impossible")
             }
         }
         Apply(x, args) => {
-            if (e.value[x] == Some(Fun(func))) {
+            if (value_of(x) == Fun(func)) {
                 e.tail_success = true;
                 CallTailRec(x, args)
             } else {
-                e.tail_success = true;
+                e.tail_success = false;
                 Apply(x, args)
             }
         }
-        Unit | Int(_) | Double(_) | Tuple(_) | Var(_) => {
+        Unit | Int(_) | Double(_) | Tuple(_) | Var(_) | Get(_) => {
             e.tail_success = true;
             knf
         }

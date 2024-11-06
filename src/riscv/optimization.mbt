@@ -298,7 +298,9 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     // We haven't pushed this in the loop
-    result.push(body[body.length() - 1]);
+    if (body.length() > 0) {
+        result.push(body[body.length() - 1]);
+    }
 
     return result;
 }
@@ -375,7 +377,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         }
 
         match body[i] {
-            Mv(a, b) | FmvD(a, b) => ref[a] = b;
+            Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); }
 
             Label(_) | J(_) | Bne(_) | Beq(_) |
             Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
@@ -384,8 +386,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
                 for k, v in copy {
-                    if (k == A0 || v == A0 || k == A1 || v == A1 ||
-                        k == Fa0 || v == Fa0) {
+                    if (arg_list.contains(k) || arg_list.contains(v)) {
                         ref.remove(k);
                     }
                 }
