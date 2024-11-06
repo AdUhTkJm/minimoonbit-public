@@ -360,6 +360,5 @@ pub fn opt(knf: Knf) -> Knf {
     return knf
     |> opt_const_fold
     |> opt_remove_unused
-    // TODO: turn all closure into non-closure
     |> opt_tail_rec;
 }

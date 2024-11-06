@@ -20,6 +20,7 @@ fn deref(ref: Map[Reg, Reg], reg: Reg) -> Reg {
 
 
 // If a register is written twice without any read in between, the first write can be ignored
+// If a label is never referenced, then it can be ignored
 pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let last_read: Map[Reg, Int] = Map::new();
     let last_written: Map[Reg, Int] = Map::new();
@@ -112,8 +113,8 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     return opt;
 }
 
-// If a register is never read in the full function, remove all writes to it
-// (Except a* which are arguments)
+// If a register is never read in the whole function, remove all writes to it
+// (Except a0, ..., a7 which are arguments)
 pub fn opt_remove_unread(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut read: @immut/hashset.T[Reg] = @immut/hashset.T::new();
 
@@ -305,6 +306,7 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
+// Remove instructions that have no effect.
 pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut i = 0;
     let result = [];
@@ -336,11 +338,13 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
 }
 
 // If we know s1 = s2, then we can substitute s2 wherever s1 appears
+// The same goes for labels and immediates as well
 pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut i = 0;
     let result = [];
     let ref: Map[Reg, Reg] = {};
     let label: Map[Reg, String] = {};
+    let imms: Map[Reg, String] = {};
 
     while (i < body.length()) {
         let file = reg_used(body[i]);
@@ -353,15 +357,20 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
                     result.push(body[i]);
                 }
             }
-            _ => result.push(register_rename(body[i], fn (reg) {
-                deref(ref, reg)
-            }, fn (x) {x}));
+            Mv(x, y) => {
+                if (imms.contains(y)) {
+                    println("convert: \{body[i]} (where \{y} = \{imms[y].unwrap()})")
+                    result.push(Li(x, imms[y].unwrap()));
+                } else {
+                    result.push(register_rename(body[i], fn (reg) { deref(ref, reg) }, fn (x) {x}));
+                }
+            }
+            _ => result.push(register_rename(body[i], fn (reg) { deref(ref, reg) }, fn (x) {x}));
         }
 
         if (file.rd.is_empty().not()) {
             let invalid = file.rd.unwrap();
             let copy = Map::from_iter(ref.iter());
-            let clabel = Map::from_iter(label.iter());
 
             // Can't just remove on ref; otherwise Iter gets invalidated
             for k, v in copy {
@@ -369,19 +378,16 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
                     ref.remove(k);
                 }
             }
-            for k, _ in clabel {
-                if (k == invalid) {
-                    clabel.remove(k);
-                }
-            }
+            label.remove(invalid);
+            imms.remove(invalid);
         }
 
         match body[i] {
-            Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); }
+            Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); imms.remove(a); }
 
             Label(_) | J(_) | Bne(_) | Beq(_) |
             Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
-            Bltu(_) => { ref.clear(); label.clear(); }
+            Bltu(_) => { ref.clear(); label.clear(); imms.clear(); }
 
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
@@ -390,10 +396,15 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
                         ref.remove(k);
                     }
                 }
+                for x in arg_list {
+                    label.remove(x);
+                    imms.remove(x);
+                }
             }
 
             La(a, x) => label[a] = x._;
-
+            Li(a, x) => imms[a] = x;
+            
             _ => ();
         }
 
