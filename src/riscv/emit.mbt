@@ -736,7 +736,7 @@ fn pack_closure(f_name: @types.Name) -> Reg {
 }
 
 // If referencing global things, make it correct
-pub fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
+fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     for i = 0; i < asm.length(); i = i + 1 {
     
@@ -920,12 +920,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let body = tidy(pseudobody);
     t_clear();
     regalloc(body, true);
-    println(fun.old_name);
-    println("");
-    println(body);
-    println("");
-    println(body |> consolidate);
-    println("\n\n");
 
     let opt = body
         |> consolidate
@@ -955,9 +949,14 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
+    let temp_used = [];
+
     for r in all_used {
-        // Don't preserve a0, a1 etc.
-        if (reg_allocatable_list.contains(r).not() && r != Ra) {
+        if (reg_callee_saved_list.contains(r).not() && r != Ra) {
+            if (reg_temp_list.contains(r)) {
+                // Don't preserve a0 etc.
+                temp_used.push(r);
+            }
             continue;
         }
 
@@ -965,10 +964,32 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         post.push(Ld(r, { base: Sp, offset: offset }));
         offset += 8;
     }
+    
+    // If we are using temporary registers, t0 - t7
+    // then preserve them before any calls
+    let called = [];
+    for x in opt {
+        match x {
+            Call(_) | Jalr(_) => {
+                let tpre = [];
+                let tpost = [];
+                let _ = temp_used.mapi(fn (i, r) {
+                    tpre.push(Sd(r, { base: Sp, offset: offset + i * 8 }));
+                    tpost.push(Ld(r, { base: Sp, offset: offset + i * 8 }));
+                });
+                called.append(tpre);
+                called.push(x);
+                called.append(tpost);
+            }
+            _ => called.push(x);
+        }
+    }
+
+    offset += 8 * temp_used.length();
 
     let full_body = [
         ..pre,
-        ..opt,
+        ..called,
         ..post
     ];
 
