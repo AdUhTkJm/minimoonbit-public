@@ -1025,14 +1025,16 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     t_clear();
     regalloc(body, true);
 
-    let opt = body
-        |> consolidate
-        |> opt_remove_identical
-        |> opt_peephole_2
-        |> opt_peephole_2           // Might produce more processable seq
-        |> opt_inline_var
-        |> opt_remove_identical     // Remove again because inlining
-        |> opt_remove_useless;
+    let mut opt = body |> consolidate;
+    for i = 0; i < 3; i = i + 1 {
+        opt = opt
+            |> opt_remove_identical
+            |> opt_peephole_2
+            |> opt_inline_var
+            |> opt_remove_identical
+            |> opt_remove_write
+            |> opt_remove_unread;
+    }
 
     offset = t.offset;
 
@@ -1054,15 +1056,10 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
-    let temp_used = [];
     let saved = [..reg_callee_saved_list, ..freg_callee_saved_list];
 
     for r in all_used {
         if (saved.contains(r).not() && r != Ra) {
-            if (reg_temp_list.contains(r)) {
-                // Don't preserve a0 etc.
-                temp_used.push(r);
-            }
             continue;
         }
 
@@ -1079,12 +1076,24 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // If we are using temporary registers, t0 - t7
     // then preserve them before any calls
     let called = [];
+    let mut temp_used: @immut/hashset.T[Reg] = @immut/hashset.T::new();
+    let tmp_list = [..reg_temp_list, ..freg_temp_list];
     for x in opt {
+        let file = reg_used(x);
+        if (file.rd.is_empty().not() && tmp_list.contains(file.rd.unwrap())) {
+            temp_used = temp_used.add(file.rd.unwrap());
+        }
+        if (file.rs1.is_empty().not() && tmp_list.contains(file.rs1.unwrap())) {
+            temp_used = temp_used.add(file.rs1.unwrap());
+        }
+        if (file.rs2.is_empty().not() && tmp_list.contains(file.rs2.unwrap())) {
+            temp_used = temp_used.add(file.rs2.unwrap());
+        }
         match x {
             Call(_) | Jalr(_) => {
                 let tpre = [];
                 let tpost = [];
-                let _ = temp_used.mapi(fn (i, r) {
+                let _ = Array::from_iter(temp_used.iter()).mapi(fn (i, r) {
                     if (reg_all_list.contains(r)) {
                         tpre.push(Sd(r, { base: Sp, offset: offset + i * 8 }));
                         tpost.push(Ld(r, { base: Sp, offset: offset + i * 8 }));
@@ -1101,7 +1110,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
-    offset += 8 * temp_used.length();
+    offset += 8 * temp_used.size();
 
     let full_body = [
         ..pre,

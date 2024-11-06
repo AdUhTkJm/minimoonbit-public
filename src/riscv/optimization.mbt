@@ -11,9 +11,16 @@ fn defake(reg: Reg) -> Reg {
     }
 }
 
-// Removes useless instructions
+fn deref(ref: Map[Reg, Reg], reg: Reg) -> Reg {
+    match ref[reg] {
+        Some(t) => deref(ref, t)
+        None => reg
+    }
+}
+
+
 // If a register is written twice without any read in between, the first write can be ignored
-pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
+pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let last_read: Map[Reg, Int] = Map::new();
     let last_written: Map[Reg, Int] = Map::new();
     let mut used_labels: @immut/hashset.T[Label] = @immut/hashset.T::new();
@@ -104,6 +111,44 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
 
     return opt;
 }
+
+// If a register is never read in the full function, remove all writes to it
+// (Except a* which are arguments)
+pub fn opt_remove_unread(body: Array[RvAsm]) -> Array[RvAsm] {
+    let mut read: @immut/hashset.T[Reg] = @immut/hashset.T::new();
+
+    fn store_read(x: Option[Reg]) {
+        if (x.is_empty().not()) {
+            read = read.add(x.unwrap());
+        }
+    }
+
+    for i = 0; i < body.length(); i = i + 1 {
+        let asm = body[i];
+
+        let used = reg_used(asm);
+        store_read(used.rs1);
+        store_read(used.rs2);
+    }
+
+    let opt = [];
+    let arg_list = [..reg_arg_list, ..freg_arg_list];
+    for i = 0; i < body.length(); i = i + 1 {
+        let used = reg_used(body[i]);
+
+        if (used.rd.is_empty().not()) {
+            let rd = used.rd.unwrap();
+            if (read.contains(rd).not() && arg_list.contains(rd).not()) {
+                continue;
+            }
+        }
+
+        opt.push(body[i]);
+    }
+
+    return opt;
+}
+
 
 fn atoi(arr: String) -> Option[Int] {
     let mut x = 0;
@@ -293,25 +338,38 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut i = 0;
     let result = [];
     let ref: Map[Reg, Reg] = {};
+    let label: Map[Reg, String] = {};
 
     while (i < body.length()) {
         let file = reg_used(body[i]);
 
-        result.push(register_rename(body[i], fn (reg) {
-            match ref[reg] {
-                Some(t) => t
-                None => reg
+        match body[i] {
+            Jalr(x) => {
+                if (label[x].is_empty().not()) {
+                    result.push(Call(label[x].unwrap()));
+                } else {
+                    result.push(body[i]);
+                }
             }
-        }, fn (x) {x}));
+            _ => result.push(register_rename(body[i], fn (reg) {
+                deref(ref, reg)
+            }, fn (x) {x}));
+        }
 
         if (file.rd.is_empty().not()) {
             let invalid = file.rd.unwrap();
             let copy = Map::from_iter(ref.iter());
+            let clabel = Map::from_iter(label.iter());
 
             // Can't just remove on ref; otherwise Iter gets invalidated
             for k, v in copy {
                 if (k == invalid || v == invalid) {
                     ref.remove(k);
+                }
+            }
+            for k, _ in clabel {
+                if (k == invalid) {
+                    clabel.remove(k);
                 }
             }
         }
@@ -321,7 +379,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
 
             Label(_) | J(_) | Bne(_) | Beq(_) |
             Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
-            Bltu(_) => ref.clear();
+            Bltu(_) => { ref.clear(); label.clear(); }
 
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
@@ -332,6 +390,8 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
                     }
                 }
             }
+
+            La(a, x) => label[a] = x._;
 
             _ => ();
         }
