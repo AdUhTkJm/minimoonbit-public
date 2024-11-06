@@ -2,7 +2,8 @@ fn defake(reg: Reg) -> Reg {
     match reg {
         Fake(name) => match t.regs[name] {
             Some(w) => w
-            None => @util.die("emit: regalloc failed: \{reg}")
+            // At this stage, all unallocated things must be Unit
+            None => A0
         }
         Arg(i) => reg_arg_list[i]
         Farg(i) => freg_arg_list[i]
