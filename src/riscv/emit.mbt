@@ -86,8 +86,17 @@ fn t_clear() -> Unit {
 pub let t: T = T::new();
 
 
-fn reg(r: @types.Name) -> Unit {
-    for z in reg_allocatable_list {
+fn reg(r: @types.Name, has_call: Bool) -> Unit {
+    let mut list = [];
+
+    // If no call, then prefer temp variables
+    if (has_call) {
+        list = reg_allocatable_list;
+    } else {
+        list = reg_allocatable_list_biased;
+    }
+
+    for z in list {
         // z is used after this instruction, so can't reuse
         if (t.occupy.contains(z) && t.last_used[t.occupy[z].unwrap()] > t.first_used[r]) {
             continue;
@@ -202,13 +211,20 @@ fn regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
         }
     }
 
+    let mut has_call = false;
+    for x in asm {
+        match x {
+            Call(_) | Jalr(_) => has_call = true;
+            _ => ()
+        }
+    }
 
     to_alloc.sort_by(fn (a, b) { t.first_used[a].unwrap() - t.first_used[b].unwrap(); });
     for r in to_alloc {
         if (@closure.glob.val.contains(r)) {
             continue;
         }
-        reg(r);
+        reg(r, has_call);
     }
 }
 
@@ -746,19 +762,37 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             if (is_fake(b)) {
                 let f_name = real(b);
 
-                if (is_closure(f_name)) {
+                if (find_func(f_name).is_empty().not()) {
+                    // must pack
                     let temp = fake(Ptr);
                     let closure = fake(type_of(f_name));
+
+                    result.append(make_closure(f_name, closure));
                     result.push(Li(A0, "16"));
                     result.push(Call("minimbt_malloc"));
-                    result.push(Sd(Fake(f_name), { base: A0, offset: 0 }));
+                    result.push(La(temp, f_name.to_string()));
+                    result.push(Sd(temp, { base: A0, offset: 0 }));
+
                     if (has_env(f_name)) {
                         let env = get_env(f_name);
                         result.push(Sd(env, { base: A0, offset: 8 }));
                     }
+
                     result.push(Mv(closure, A0));
-                    result.push(La(temp, a.to_string()));
+                    result.push(La(temp, real(a).to_string()));
                     result.push(Sd(closure, { base: temp, offset: 0 }));
+                    continue;
+                }
+
+                // b is global as well
+                // must make it *a = *b
+                if (@closure.glob.val.contains(f_name)) {
+                    let temp = fake(Ptr);
+                    let b = fake(type_of(f_name));
+                    result.push(La(temp, f_name.to_string()));
+                    result.push(Ld(b, { base: temp, offset: 0 }));
+                    result.push(La(temp, real(a).to_string()));
+                    result.push(Sd(b, { base: temp, offset: 0 }));
                     continue;
                 }
             }
@@ -766,7 +800,7 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             // We are loading a normal value
             // We need to do "*a = b" instead of "a = b" for values
             let temp = fake(Ptr);
-            result.push(La(temp, a.to_string()));
+            result.push(La(temp, real(a).to_string()));
             result.push(Sd(b, { base: temp, offset: 0 }));
             continue;
         }

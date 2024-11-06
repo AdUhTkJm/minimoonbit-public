@@ -91,13 +91,15 @@ pub let reg_saved_list : Array[Reg] = [
     S9,
 ]
 
-pub let reg_arg_list : Array[Reg] = [A0, A1, A2, A3, A4, A5, A6, A7]
+pub let reg_arg_list: Array[Reg] = [A0, A1, A2, A3, A4, A5, A6, A7]
 
-pub let reg_caller_saved_list : Array[Reg] = reg_temp_list + reg_arg_list
+pub let reg_caller_saved_list: Array[Reg] = reg_temp_list + reg_arg_list
 
-pub let reg_callee_saved_list : Array[Reg] = reg_saved_list
+pub let reg_callee_saved_list: Array[Reg] = reg_saved_list
 
-pub let reg_allocatable_list : Array[Reg] = reg_saved_list + reg_temp_list
+pub let reg_allocatable_list: Array[Reg] = reg_saved_list + reg_temp_list
+
+pub let reg_allocatable_list_biased: Array[Reg] = reg_temp_list + reg_saved_list
 pub fn Reg::to_string(self : Reg) -> String {
     match self {
         Zero => "zero"
