@@ -295,7 +295,11 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
         CallExternal(name, args) => {
             let r = e.fake();
             let arg = args.map(fn (x) { (Var(x).to_string() )}).join(" ");
-            asm.push(LocalSet(r, DirectOutput("(call $\{name._} \{arg})")));
+            let mut real_name = name._;
+            if (name._ == "minimbt_create_float_array") {
+                real_name = "minimbt_create_ptr_array";
+            }
+            asm.push(LocalSet(r, DirectOutput("(call $\{real_name} \{arg})")));
             Var(r);
         }
         ArrayGet(x, i) => {

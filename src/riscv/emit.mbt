@@ -551,7 +551,8 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                         let closure = pack_closure(args[1]);
                         asm.push(Mv(A1, closure));
                     }
-                    Double => asm.push(FmvD(Fa1, Fake(args[1])));
+                    // Note that create_float_array receives fa0 as 2nd input
+                    Double => asm.push(FmvD(Fa0, Fake(args[1])));
                     _ => asm.push(Mv(A1, Fake(args[1])));
                 }
 
