@@ -5,6 +5,7 @@ fn defake(reg: Reg) -> Reg {
             None => @util.die("emit: regalloc failed: \{reg}")
         }
         Arg(i) => reg_arg_list[i]
+        Farg(i) => freg_arg_list[i]
         z => z
     }
 }
@@ -63,6 +64,14 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
                 }
                 used_labels = used_labels.add(label);
             }
+            Call(_) | Jalr(_) => {
+                for x in [..reg_arg_list, ..freg_arg_list] {
+                    store_read(Some(x), i);
+                }
+                store_write(Some(A0), i);
+                store_write(Some(A1), i);
+                store_write(Some(Fa0), i);
+            }
             _ => ()
         }
 
@@ -74,7 +83,7 @@ pub fn opt_remove_useless(body: Array[RvAsm]) -> Array[RvAsm] {
 
     // Reached the end; store_write() for every register
     // so that registers written once and never read will be eliminated
-    for x in reg_allocatable_list {
+    for x in [..reg_allocatable_list, ..freg_allocatable_list] {
         store_write(Some(x), body.length());
     }
 
@@ -123,6 +132,24 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (FmvD(a, b), FmvD(c, d)) => {
+                // same as mv
+                if (b == c && a == d) {
+                    result.push(body[i]);
+                    i += 2;
+                    continue;
+                }
+            }
+            (FmvDX(a, b), FmvD(c, d)) => {
+                // If it is like "a = b; c = a";
+                // then make the second one "c = b"
+                if (a == d) {
+                    result.push(body[i]);
+                    result.push(FmvDX(c, b));
+                    i += 2;
+                    continue;
+                }
+            }
             (Li(a, imm), Mv(b, c)) => {
                 // If it is like "a = 0; b = a;"
                 // then make the second one "b = 0"
@@ -145,6 +172,7 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
             }
             (Li(a, imm), Add(b, c, d)) => {
                 // li a, imm; add b, c, a => addi b, c, imm
+                // li a, imm; add b, a, c => addi b, c, imm
 
                 // Note: we sometimes load int64 into a register
                 // but it doesn't matter because this combination do not happen
@@ -157,6 +185,13 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     i += 2;
                     continue;
                 }
+
+                if (a == c && v.is_empty().not() && v.unwrap() < 2048 && v.unwrap() >= -2048) {
+                    result.push(body[i]);
+                    result.push(Addi(b, d, v.unwrap()));
+                    i += 2;
+                    continue;
+                }
             }
             (Li(a, imm), Sub(b, c, d)) => {
                 // li a, imm; sub b, c, a => addi b, c, -imm
@@ -166,6 +201,18 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                 if (a == d && v.is_empty().not() && v.unwrap() <= 2048 && v.unwrap() > -2048) {
                     result.push(body[i]);
                     result.push(Addi(b, c, -v.unwrap()));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Li(a, imm), Slli(b, c, 3)) => {
+                // li a, imm; slli a, a, 3 => li a, imm * 8;
+                // Seen on array manipulation
+                
+                let v = atoi(imm);
+                
+                if (a == b && a == c && v.is_empty().not()) {
+                    result.push(Li(a, (8 * v.unwrap()).to_string()));
                     i += 2;
                     continue;
                 }
@@ -227,6 +274,12 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
                     result.push(body[i]);
                 }
             }
+            FmvD(a, b) => {
+                // Remove "fmv.d a, a"
+                if (weak_eq(a, b).not()) {
+                    result.push(body[i]);
+                }
+            }
             _ => result.push(body[i])
         }
         i += 1;
@@ -263,7 +316,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         }
 
         match body[i] {
-            Mv(a, b) => ref[a] = b;
+            Mv(a, b) | FmvD(a, b) => ref[a] = b;
 
             Label(_) | J(_) | Bne(_) | Beq(_) |
             Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
@@ -272,7 +325,8 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
                 for k, v in copy {
-                    if (k == A0 || v == A0 || k == A1 || v == A1) {
+                    if (k == A0 || v == A0 || k == A1 || v == A1 ||
+                        k == Fa0 || v == Fa0) {
                         ref.remove(k);
                     }
                 }

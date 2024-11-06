@@ -89,11 +89,19 @@ pub let t: T = T::new();
 fn reg(r: @types.Name, has_call: Bool) -> Unit {
     let mut list = [];
 
-    // If no call, then prefer temp variables
-    if (has_call) {
-        list = reg_allocatable_list;
+    // If no calling other functions, prefer temp variables
+    if (type_of(r) == Double) {
+        if (has_call) {
+            list = freg_allocatable_list;
+        } else {
+            list = freg_allocatable_list_biased;
+        }
     } else {
-        list = reg_allocatable_list_biased;
+        if (has_call) {
+            list = reg_allocatable_list;
+        } else {
+            list = reg_allocatable_list_biased;
+        }
     }
 
     for z in list {
@@ -186,6 +194,7 @@ fn regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
             store_first(used.rd, i);
             to_alloc.push(real(used.rd.unwrap()));
         }
+
         store_last(used.rd, i);
         store_last(used.rs1, i);
         store_last(used.rs2, i);
@@ -267,8 +276,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         Double(x) => {
+            let tmp = fake(Int);
             let r = fake(Double);
-            asm.push(Li(r, x.reinterpret_as_i64().to_string()));
+            asm.push(Li(tmp, x.reinterpret_as_i64().to_string()));
+            asm.push(FmvDX(r, tmp));
             r;
         }
         Add(a, b) => {
@@ -294,49 +305,33 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         // have to rework FP registers somehow
         FAdd(a, b) => {
             let r = fake(Double);
-            asm.push(FmvDX(Ft1, Fake(a)));
-            asm.push(FmvDX(Ft2, Fake(b)));
-            asm.push(FaddD(Ft1, Ft1, Ft2));
-            asm.push(FmvXD(r, Ft1));
+            asm.push(FaddD(r, Fake(a), Fake(b)));
             r;
         }
         FSub(a, b) => {
             let r = fake(Double);
-            asm.push(FmvDX(Ft1, Fake(a)));
-            asm.push(FmvDX(Ft2, Fake(b)));
-            asm.push(FsubD(Ft1, Ft1, Ft2));
-            asm.push(FmvXD(r, Ft1));
+            asm.push(FsubD(r, Fake(a), Fake(b)));
             r;
         }
         FDiv(a, b) => {
             let r = fake(Double);
-            asm.push(FmvDX(Ft1, Fake(a)));
-            asm.push(FmvDX(Ft2, Fake(b)));
-            asm.push(FdivD(Ft1, Ft1, Ft2));
-            asm.push(FmvXD(r, Ft1));
+            asm.push(FdivD(r, Fake(a), Fake(b)));
             r;
         }
         FMul(a, b) => {
             let r = fake(Double);
-            asm.push(FmvDX(Ft1, Fake(a)));
-            asm.push(FmvDX(Ft2, Fake(b)));
-            asm.push(FmulD(Ft1, Ft1, Ft2));
-            asm.push(FmvXD(r, Ft1));
+            asm.push(FmulD(r, Fake(a), Fake(b)));
             r;
         }
         FNeg(a) => {
             let r = fake(Double);
-            asm.push(FmvDX(Ft1, Fake(a)));
-            asm.push(FnegD(Ft1, Ft1));
-            asm.push(FmvXD(r, Ft1));
+            asm.push(FnegD(r, Fake(a)));
             r;
         }
         Eq(a, b) => {
             let r = fake(Int);
             if (type_of(a) == Double) {
-                asm.push(FmvDX(Ft1, Fake(a)));
-                asm.push(FmvDX(Ft2, Fake(b)));
-                asm.push(FeqD(r, Ft1, Ft2));
+                asm.push(FeqD(r, Fake(a), Fake(b)));
             } else {
                 let r = fake(Int);
                 asm.push(Xor(r, Fake(a), Fake(b)));
@@ -349,9 +344,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         Le(a, b) => {
             let r = fake(Int);
             if (type_of(a) == Double) {
-                asm.push(FmvDX(Ft1, Fake(a)));
-                asm.push(FmvDX(Ft2, Fake(b)));
-                asm.push(FleD(r, Ft1, Ft2));
+                asm.push(FleD(r, Fake(a), Fake(b)));
             } else {
                 asm.push(Slt(r, Fake(b), Fake(a)));
                 asm.push(Xori(r, r, 1));
@@ -373,10 +366,12 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 Array(w) => w
                 _ => @util.die("emit: array get in non-array (\{x}: \{type_of(x)})");
             }
-            let r = fake(ty);
+            let r = fake(Ptr);
             // r = *(x + (i << 3));
             asm.push(Slli(r, Fake(i), 3));
             asm.push(Add(r, r, Fake(x)));
+
+            let result = fake(ty);
 
             match ty {
                 // This is an array of functions
@@ -384,18 +379,21 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                     // Unpack closure
                     let closure = fake(ty);
                     asm.push(Ld(closure, { base: r, offset: 0 }));
-                    asm.push(Ld(r, { base: closure, offset: 0 }));
+                    asm.push(Ld(result, { base: closure, offset: 0 }));
                     
                     let env = fake(Ptr);
                     asm.push(Ld(env, { base: closure, offset: 8 }));
                     asm.push(Mv(A1, env));
-                    add_closure(real(r), env);
+                    add_closure(real(result), env);
+                }
+                Double => {
+                    asm.push(Fld(result, { base: r, offset: 0 }));
                 }
                 _ => {
-                    asm.push(Ld(r, { base: r, offset: 0 }));
+                    asm.push(Ld(result, { base: r, offset: 0 }));
                 }
             }
-            r;
+            result;
         }
         ArrayPut(x, i, val) => {
             let addr = fake(Int);
@@ -403,14 +401,20 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Slli(addr, Fake(i), 3));
             asm.push(Add(addr, addr, Fake(x)));
 
-            if (is_closure(val)) {
-                // Pack the closure
-                let closure = pack_closure(val);
+            match type_of(val) {
+                Fun(_) => {
+                    // Pack the closure
+                    let closure = pack_closure(val);
 
-                asm.push(Sd(closure, { base: addr, offset: 0 }));
-            } else {
-                asm.push(Sd(Fake(val), { base: addr, offset: 0 }));
-            }
+                    asm.push(Sd(closure, { base: addr, offset: 0 }));
+                }
+                Double => {
+                    asm.push(Fsd(Fake(val), { base: addr, offset: 0 }));
+                }
+                _ => {
+                    asm.push(Sd(Fake(val), { base: addr, offset: 0 }));
+                }
+            } 
             fake(Unit);
         }
         MakeTuple(arr) => {
@@ -426,13 +430,19 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             // Put everything into the array
             let _ = arr.mapi(fn (i, x) {
-                if (is_closure(x)) {
-                    // We need to pack the closure so that it fits in 8 bytes
-                    let closure = pack_closure(x);
+                match type_of(x) {
+                    Fun(_) => {
+                        // Pack the closure
+                        let closure = pack_closure(x);
 
-                    asm.push(Sd(closure, { base: array, offset: i * 8 }));
-                } else {
-                    asm.push(Sd(Fake(x), { base: array, offset: i * 8 }));
+                        asm.push(Sd(closure, { base: array, offset: i * 8 }));
+                    }
+                    Double => {
+                        asm.push(Fsd(Fake(x), { base: array, offset: i * 8 }));
+                    }
+                    _ => {
+                        asm.push(Sd(Fake(x), { base: array, offset: i * 8 }));
+                    }
                 }
             });
             // Record the array address
@@ -454,9 +464,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 asm.push(Bne(Fake(a), Fake(b), l_else));
             } else {
                 let r = fake(Int);
-                asm.push(FmvDX(Ft1, Fake(a)));
-                asm.push(FmvDX(Ft2, Fake(b)));
-                asm.push(FeqD(r, Ft1, Ft2));
+                asm.push(FeqD(r, Fake(a), Fake(b)));
                 asm.push(Beq(r, Zero, l_else));
             }
             
@@ -485,9 +493,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 asm.push(Bgt(Fake(a), Fake(b), l_else));
             } else {
                 let r = fake(Int);
-                asm.push(FmvDX(Ft1, Fake(a)));
-                asm.push(FmvDX(Ft2, Fake(b)));
-                asm.push(FleD(r, Ft1, Ft2));
+                asm.push(FleD(r, Fake(a), Fake(b)));
                 asm.push(Beq(r, Zero, l_else));
             }
             
@@ -516,16 +522,23 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         LetTuple(arr, val, w) => {
             let _ = arr.mapi(fn (i, x) {
-                if (is_closure(val)) {
-                    let closure = fake(type_of(val));
-                    asm.push(Ld(closure, { base: Fake(val), offset: i * 8 }));
-                    asm.push(Ld(Fake(x), { base: closure, offset: 0 }));
-                    
-                    let env = fake(Ptr);
-                    asm.push(Ld(env, { base: closure, offset: 8 }));
-                    add_closure(x, env);
-                } else {
-                    asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
+                match type_of(x) {
+                    Fun(_) => {
+                        // Unpack closure
+                        let closure = fake(type_of(x));
+                        asm.push(Ld(closure, { base: Fake(val), offset: i * 8 }));
+                        asm.push(Ld(Fake(x), { base: closure, offset: 0 }));
+                        
+                        let env = fake(Ptr);
+                        asm.push(Ld(env, { base: closure, offset: 8 }));
+                        add_closure(x, env);
+                    }
+                    Double => {
+                        asm.push(Fld(Fake(x), { base: Fake(val), offset: i * 8 }));
+                    }
+                    _ => {
+                        asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
+                    }
                 }
             });
             emit_expr(w);
@@ -533,12 +546,15 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         CallExternal(name, args) => {
             // The only external we used is create_**_array
             if (args.length() > 1) {
-                if (is_closure(args[1])) {
-                    let closure = pack_closure(args[1]);
-                    asm.push(Mv(A1, closure));
-                } else {
-                    asm.push(Mv(A1, Fake(args[1])));
+                match type_of(args[1]) {
+                    Fun(_) => {
+                        let closure = pack_closure(args[1]);
+                        asm.push(Mv(A1, closure));
+                    }
+                    Double => asm.push(FmvD(Fa1, Fake(args[1])));
+                    _ => asm.push(Mv(A1, Fake(args[1])));
                 }
+
                 asm.push(Mv(A0, Fake(args[0])));
                 asm.push(Call(name._));
                 
@@ -565,10 +581,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             match @knf.value_of(name) {
                 Unknown => {
                     let _ = args.mapi(fn (i, x) {
-                        if (is_closure(x)) {
-                            asm.push(Mv(Arg(i), closures[x].unwrap()));
-                        } else {
-                            asm.push(Mv(Arg(i), Fake(x)));
+                        match type_of(x) {
+                            Fun(_) => asm.push(Mv(Arg(i), closures[x].unwrap()));
+                            Double(_) => asm.push(FmvD(Farg(i), Fake(x)));
+                            _ => asm.push(Mv(Arg(i), Fake(x)));
                         }
                     });
 
@@ -589,10 +605,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                     }
 
                     let _ = args.mapi(fn (i, x) {
-                        if (is_closure(x)) {
-                            asm.push(Mv(Arg(i), closures[x].unwrap()));
-                        } else {
-                            asm.push(Mv(Arg(i), Fake(x)));
+                        match type_of(x) {
+                            Fun(_) => asm.push(Mv(Arg(i), closures[x].unwrap()));
+                            Double(_) => asm.push(FmvD(Farg(i), Fake(x)));
+                            _ => asm.push(Mv(Arg(i), Fake(x)));
                         }
                     });
 
@@ -601,16 +617,20 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 _ => @util.die("emit: calling non-function: \{@knf.value_of(name)}")
             }
 
-            let rv = fake(match type_of(name) {
-                Fun(_, ret_ty) => ret_ty
+             let ret_ty = match type_of(name) {
+                Fun(_, r) => r
                 _ => @util.die("emit: calling non-function: \{type_of(name)}")
-            });
+            }
+            let rv = fake(ret_ty);
             if (is_closure(real(rv))) {
                 let env = fake(Ptr);
                 asm.push(Mv(env, A1));
                 add_closure(real(rv), env);
             }
-            asm.push(Mv(rv, A0));
+            asm.push(Mv(rv, match ret_ty {
+                Double => Fa0
+                _ => A0
+            }));
             rv
         }
         CallTailRec(name, args) => {
@@ -631,10 +651,14 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
                     // Same thing here
                     let _ = f.captured.map(fn (x) {
-                        if (is_closure(x)) {
-                            asm.push(Mv(get_env(x), get_env(x)));
-                        }
-                        asm.push(Mv(Fake(x), Fake(x)));
+                        match type_of(x) {
+                            Fun(_) => {
+                                asm.push(Mv(get_env(x), get_env(x)));
+                                asm.push(Mv(Fake(x), Fake(x)));
+                            }
+                            Double => asm.push(FmvD(Fake(x), Fake(x)));
+                            _ => asm.push(Mv(Fake(x), Fake(x)));
+                        };
                     });
 
                     asm.push(J("\{f.old_name}_tailrec"));
@@ -642,16 +666,20 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 _ => @util.die("emit: calling unknown function in tail-call: \{@knf.value_of(name)}")
             }
 
-            let rv = fake(match type_of(name) {
-                Fun(_, ret_ty) => ret_ty
+            let ret_ty = match type_of(name) {
+                Fun(_, r) => r
                 _ => @util.die("emit: calling non-function: \{type_of(name)}")
-            });
+            }
+            let rv = fake(ret_ty);
             if (is_closure(real(rv))) {
                 let env = fake(Ptr);
                 asm.push(Mv(env, A1));
                 add_closure(real(rv), env);
             }
-            asm.push(Mv(rv, A0));
+            asm.push(Mv(rv, match ret_ty {
+                Double => Fa0
+                _ => A0
+            }));
             rv
         }
         ExternalArray(_) => @util.die("External array not supported")
@@ -668,7 +696,7 @@ fn weak_eq(a: Reg, b: Reg) -> Bool {
 // Returns the name of a function
 fn name_fn(f_name: @types.Name) -> String {
     if (externs.contains(f_name.name.unwrap())) {
-        f_name.name.unwrap()
+        "minimbt_" + f_name.name.unwrap()
     } else {
         f_name.to_string()
     }
@@ -858,6 +886,40 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         _ => result.push(asm[i])
         }
     }
+
+    return result |> tidy_fp;
+}
+
+// If mv/ld/sd FP registers, make it correct
+fn tidy_fp(asm: Array[RvAsm]) -> Array[RvAsm] {
+    let result = [];
+    
+    for x in asm {
+        match x {
+            Mv(a, b) => {
+                if (is_fake(a) && type_of(real(a)) == Double ||
+                    is_fake(b) && type_of(real(b)) == Double) {
+                        result.push(FmvD(a, b));
+                        continue;
+                }
+            }
+            Ld(r, mem) => {
+                if (is_fake(r) && type_of(real(r)) == Double) {
+                    result.push(Fld(r, mem));
+                    continue;
+                }
+            }
+            Sd(r, mem) => {
+                if (is_fake(r) && type_of(real(r)) == Double) {
+                    result.push(Fsd(r, mem));
+                    continue;
+                }
+            }
+            _ => ()
+        }
+        result.push(x);
+    }
+
     return result;
 }
 
@@ -904,7 +966,10 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         if (is_closure(x)) {
             closures.push(x);
         }
-        load_arg.push(Mv(Fake(x), Arg(i)));
+        match type_of(x) {
+            Double => load_arg.push(FmvD(Fake(x), Farg(i)));
+            _ => load_arg.push(Mv(Fake(x), Arg(i)));
+        }
     });
 
     // Load environment (if this is a closure)
@@ -925,12 +990,16 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 
     let ret = emit_expr(fun.body);
+    let ret_reg = match type_of(real(ret)) {
+        Double => Fa0
+        _ => A0
+    }
 
     let pseudobody = [
         ..load_arg,
         RvAsm::Label("\{fun.old_name}_tailrec"),
         ..asm,
-        Mv(A0, ret),
+        Mv(ret_reg, ret),
     ];
 
     if (fun.name._ == "minimbt_main") {
@@ -959,6 +1028,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         |> consolidate
         |> opt_remove_identical
         |> opt_peephole_2
+        |> opt_peephole_2           // Might produce more processable seq
         |> opt_inline_var
         |> opt_remove_identical     // Remove again because inlining
         |> opt_remove_useless;
@@ -984,9 +1054,10 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 
     let temp_used = [];
+    let saved = [..reg_callee_saved_list, ..freg_callee_saved_list];
 
     for r in all_used {
-        if (reg_callee_saved_list.contains(r).not() && r != Ra) {
+        if (saved.contains(r).not() && r != Ra) {
             if (reg_temp_list.contains(r)) {
                 // Don't preserve a0 etc.
                 temp_used.push(r);
@@ -994,8 +1065,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             continue;
         }
 
-        pre.push(Sd(r, { base: Sp, offset: offset }));
-        post.push(Ld(r, { base: Sp, offset: offset }));
+        if (reg_all_list.contains(r)) {
+            pre.push(Sd(r, { base: Sp, offset: offset }));
+            post.push(Ld(r, { base: Sp, offset: offset }));
+        } else {
+            pre.push(Fsd(r, { base: Sp, offset: offset }));
+            post.push(Fld(r, { base: Sp, offset: offset }));
+        }
         offset += 8;
     }
     
@@ -1008,8 +1084,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
                 let tpre = [];
                 let tpost = [];
                 let _ = temp_used.mapi(fn (i, r) {
-                    tpre.push(Sd(r, { base: Sp, offset: offset + i * 8 }));
-                    tpost.push(Ld(r, { base: Sp, offset: offset + i * 8 }));
+                    if (reg_all_list.contains(r)) {
+                        tpre.push(Sd(r, { base: Sp, offset: offset + i * 8 }));
+                        tpost.push(Ld(r, { base: Sp, offset: offset + i * 8 }));
+                    } else {
+                        tpre.push(Fsd(r, { base: Sp, offset: offset + i * 8 }));
+                        tpost.push(Fld(r, { base: Sp, offset: offset + i * 8 }));
+                    }
                 });
                 called.append(tpre);
                 called.push(x);

@@ -73,6 +73,7 @@ pub enum Reg {
     Ft11
     Fake(@types.Name)
     Arg(Int)
+    Farg(Int)
     Spilt(Int)
 } derive(Eq, Compare, Hash)
 
@@ -100,6 +101,8 @@ pub let reg_callee_saved_list: Array[Reg] = reg_saved_list
 pub let reg_allocatable_list: Array[Reg] = reg_saved_list + reg_temp_list
 
 pub let reg_allocatable_list_biased: Array[Reg] = reg_temp_list + reg_saved_list
+
+pub let reg_all_list: Array[Reg] = reg_arg_list + reg_saved_list + reg_temp_list + [Ra, Zero, Sp, Gp, Tp, Fp];
 pub fn Reg::to_string(self : Reg) -> String {
     match self {
         Zero => "zero"
@@ -168,6 +171,7 @@ pub fn Reg::to_string(self : Reg) -> String {
         Ft11 => "ft11"
         Fake(name) => name.to_string()
         Arg(i) => "arg.\{i}"
+        Farg(i) => "farg.\{i}"
         Spilt(i) => "spilt.\{i}"
     }
 }
@@ -205,14 +209,15 @@ pub let freg_saved_list : Array[Reg] = [
     Fs11,
 ]
 
-pub let freg_arg_list : Array[Reg] = [Fa0, Fa1, Fa2, Fa3, Fa4, Fa5, Fa6, Fa7]
+pub let freg_arg_list: Array[Reg] = [Fa0, Fa1, Fa2, Fa3, Fa4, Fa5, Fa6, Fa7]
 
-pub let freg_caller_saved_list : Array[Reg] = freg_temp_list + freg_arg_list
+pub let freg_caller_saved_list: Array[Reg] = freg_temp_list + freg_arg_list
 
-pub let freg_callee_saved_list : Array[Reg] = freg_saved_list
+pub let freg_callee_saved_list: Array[Reg] = freg_saved_list
 
-pub let freg_allocatable_list : Array[Reg] = freg_callee_saved_list +
-    freg_caller_saved_list
+pub let freg_allocatable_list: Array[Reg] = freg_saved_list + freg_temp_list
+
+pub let freg_allocatable_list_biased: Array[Reg] = freg_temp_list + freg_saved_list
 
 // rd is the register written to, rs1 and rs2 are the ones read from
 struct RegFile {
