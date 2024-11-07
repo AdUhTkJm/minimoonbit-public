@@ -334,7 +334,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             if (type_of(a) == Double) {
                 asm.push(FeqD(r, Fake(a), Fake(b)));
             } else {
-                let r = fake(Int);
                 asm.push(Xor(r, Fake(a), Fake(b)));
                 // set less than immediate, unsigned
                 // r = (r < 1u ? 1 : 0)
