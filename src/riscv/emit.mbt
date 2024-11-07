@@ -475,12 +475,26 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             
             let e_body = emit_expr(body);
             let r = fake(type_of(real(e_body)));
+            // In case this is a closure, we need to associate environment as well
+            if (is_closure(real(r))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, r));
+                add_closure(real(r), env);
+            }
             asm.push(Mv(r, e_body));
 
             asm.push(J(end));
             asm.push(Label(l_else));
             asm.push(Mv(r, emit_expr(otherwise)));
+            // Same goes here
+            if (is_closure(real(r))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, r));
+                add_closure(real(r), env);
+            }
             asm.push(Label(end));
+            
+
             r;
         }
         IfLe(a, b, body, otherwise) => {
@@ -505,10 +519,22 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             let e_body = emit_expr(body);
             let r = fake(type_of(real(e_body)));
             asm.push(Mv(r, e_body));
+            // In case this is a closure, we need to associate environment as well
+            if (is_closure(real(r))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, r));
+                add_closure(real(r), env);
+            }
 
             asm.push(J(end));
             asm.push(Label(l_else));
             asm.push(Mv(r, emit_expr(otherwise)));
+            // Same goes here
+            if (is_closure(real(r))) {
+                let env = fake(Ptr);
+                asm.push(Mv(env, r));
+                add_closure(real(r), env);
+            }
             asm.push(Label(end));
             r;
         }
@@ -709,8 +735,15 @@ fn make_closure(f_name: @types.Name, target: Reg) -> Array[RvAsm] {
     let mut offset = 0;
 
     if (find_func(f_name).is_empty()) {
-        @util.die("unknown function: \{f_name}");
+        // This means we are handling a function pointer
+        // this comes from elsewhere (eg. let z = if (...) f else g)
+        // so just exploit information we already know
+
+        result.push(Mv(target, Fake(f_name)));
+        result.push(Mv(A1, get_env(f_name)));
+        return result;
     }
+
     let f = find_func(f_name).unwrap();
 
     // to_string() will differentiate all local functions with same name
@@ -1026,6 +1059,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
+    // for x in pseudobody { println(x) }
+    // println("\n")
     t_clear();
     basic_regalloc(body, true);
 

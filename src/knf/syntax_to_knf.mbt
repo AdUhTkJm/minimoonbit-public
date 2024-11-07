@@ -273,7 +273,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
         }
         ApplyExtern(name, args) => {
             let t_args = args.map(fn (z) { self.new_temp(self.lookup(z)) });
-            args.foldi(~init = ExternalFunctionApplication(name, t_args),
+            args.rev_foldi(~init = ExternalFunctionApplication(name, t_args),
             fn (i, knf, arg) { Let(t_args[i], self.to_knf(arg), knf)});
         }
     }

@@ -387,6 +387,6 @@ pub fn opt(knf: Knf) -> Knf {
 
     return knf
     |> opt_const_fold
-    |> opt_remove_unused
+    // |> opt_remove_unused
     |> opt_tail_rec;
 }
