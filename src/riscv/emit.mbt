@@ -1026,8 +1026,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
-    for x in body { println(x) }
-    println("\n")
     t_clear();
     basic_regalloc(body, true);
 

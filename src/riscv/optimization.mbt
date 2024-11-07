@@ -2,7 +2,11 @@ fn defake(reg: Reg) -> Reg {
     match reg {
         Fake(name) => match t.regs[name] {
             Some(w) => w
-            None => @util.die("emit: cannot find \{reg}");
+            None => if (type_of(name) == Unit) {
+                Zero
+            } else {
+                @util.die("emit: cannot find \{reg}")
+            }
         }
         Arg(i) => reg_arg_list[i]
         Farg(i) => freg_arg_list[i]
@@ -352,6 +356,7 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            Nop => ()
             _ => result.push(body[i])
         }
         i += 1;
@@ -721,5 +726,7 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
 /// Make all fake registers real
 pub fn consolidate(body: Array[RvAsm]) -> Array[RvAsm] {
-    return body.map(fn (asm) { register_rename(asm, defake, defake); });
+    return body.map(fn (asm) {
+        register_rename(asm, defake, defake);
+    });
 }
