@@ -1184,7 +1184,9 @@ pub fn AssemblyFunction::output(
     }
 
     let name = self.name;
-    logger.write_string(".global \{name}\n")
+    if (name == "minimbt_main") {
+        logger.write_string(".global \{name}\n")
+    }
     logger.write_string("\{name}:\n")
 
     for asm in self.body {

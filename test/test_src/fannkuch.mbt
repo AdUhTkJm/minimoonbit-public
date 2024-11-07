@@ -112,31 +112,16 @@ fn max(a: Int, b: Int) -> Int {
 };
 
 fn fannkuch(n: Int) -> Int {
-    let mx = Array::make(1, 0);
-
-    fn do_loop() {
-        mx[0] = max(mx[0], flip_count(arr));
+    fn do_loop(mx) {
+        let new_mx = max(mx, flip_count(arr));
         if not(next_permutation(arr)) {
-            do_loop()
+            do_loop(new_mx)
         } else {
-            mx[0]
+            mx
         }
     };
 
-    do_loop()
-};
-
-fn print_array(arr: Array[Int]) -> Unit {
-    fn aux(i: Int) -> Unit {
-        if i == n {
-            ()
-        } else {
-            let _ = print_int(arr[i]);
-            let _ = print_char(32);
-            aux(i + 1)
-        }
-    };
-    aux(0)
+    do_loop(-1)
 };
 
 fn main {
