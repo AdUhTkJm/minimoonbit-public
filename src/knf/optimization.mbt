@@ -145,7 +145,7 @@ fn side_effect_free(knf: Knf) -> Bool {
             }
             side_effect_free(w);
         }
-        Apply(f, _) =>
+        Apply(f, _) | CallTailRec(f, _) =>
             e.is_se_free[f] == Some(true)
         ExternalFunctionApplication(name, _) =>
             ["read_int", "read_char", "print_int", "print_char",
@@ -169,6 +169,16 @@ fn prepare_fundef(knf: Knf) -> Unit {
             prepare_fundef(syn);
             prepare_fundef(w);
         }
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) => {
+            prepare_fundef(body);
+            prepare_fundef(otherwise)
+        }
+        Let(_, val, w) => {
+            prepare_fundef(val);
+            prepare_fundef(w);
+        }
+        LetTuple(_, _, w) =>
+            prepare_fundef(w)
         _ => ()
     }
 }
@@ -307,8 +317,15 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
 
 fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
     match knf {
-        Let(a, val, w) => 
-            Let(a, val, opt_tail_rec_(w, func));
+        Let(a, val, w) => {
+            let v = opt_tail_rec_(val, func);
+            // The function is recursive but not tail-recursive
+            if (e.tail_success) {
+                Let(a, val, w);
+            } else {
+                Let(a, v, opt_tail_rec_(w, func));
+            }
+        }
         LetTuple(arr, x, w) =>
             LetTuple(arr, x, opt_tail_rec_(w, func))
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
