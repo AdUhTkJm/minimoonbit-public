@@ -117,22 +117,6 @@ pub fn convert(knf: @knf.Knf) -> Expr {
         CallTailRec(f, args) => CallTailRec(f, args)
         
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
-            // Deal with multiple "init"s: combine them to one
-            if (f_name.name == Some("init")) {
-                for i = 0; i < funcs.length(); i = i + 1 {
-                    let x = funcs[i];
-                    if (x.old_name.name == Some("init")) {
-                        let init = Name::name_only("__init_\{f_name}");
-                        @knf.typing[init] = Fun([], Unit);
-                        funcs[i] = {
-                            ..x,
-                            body: Let(init, x.body, convert(syn))
-                        };
-                        return convert(w);
-                    }
-                }
-            }
-
             let mut caps = captured(syn).remove(f_name);
             for x in args {
                 caps = caps.remove(x);

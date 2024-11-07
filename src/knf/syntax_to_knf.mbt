@@ -159,10 +159,21 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
 
             Let(self.get(name), self.to_knf(s1), self.to_knf(s2));
         }
-        LetRec({ name: (f_name, ty), args: args, body: syn }, w) => {
-            if (self.is_global(f_name).not()) {
+        LetRec({ name: (name, ty), args: args, body: syn }, w) => {
+            let mut is_init = false;
+            let f_name = 
+                if (self.is_global(name) && name == "init") {
+                    let new_name = "init_\{self.counter.val}";
+
+                    is_init = true;
+                    self.globals = self.globals.add((new_name, Fun([], Unit)));
+                    new_name
+                } else { name };
+
+            if (self.is_global(f_name).not() || is_init) {
                 self.add(f_name, ty);
             }
+
 
             // New scope started, deep copy current environment
             let env = KnfEnv :: { ..self };
@@ -171,12 +182,21 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             }
             let e_args = args.map(fn (z) { env.get(z.0) });
 
-            LetRec(FuncDef :: {
+            let fdef = FuncDef :: {
                 name: self.get(f_name),
                 ty: ty,
                 args: e_args,
-                body: env.to_knf(syn)},
-            self.to_knf(w));
+                body: env.to_knf(syn)
+            };
+
+            // Insert a fake global variable to call init()
+            if (is_init) {
+                LetRec(fdef, Let(self.new_temp(Unit),
+                Apply(self.get(f_name), []), self.to_knf(w)));
+            } else {
+                LetRec(fdef,
+                self.to_knf(w));
+            }
         }
         LetTuple(arr, syn, w) => {
             let var = self.new_temp(self.lookup(syn));

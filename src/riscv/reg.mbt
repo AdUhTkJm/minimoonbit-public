@@ -221,6 +221,10 @@ pub let freg_allocatable_list: Array[Reg] = freg_saved_list + freg_temp_list
 
 pub let freg_allocatable_list_biased: Array[Reg] = freg_temp_list + freg_saved_list
 
+pub let freg_all_list: Array[Reg] = freg_temp_list + freg_arg_list + freg_saved_list
+
+pub let allocatable_list: Array[Reg] = reg_allocatable_list + freg_allocatable_list
+
 // rd is the register written to, rs1 and rs2 are the ones read from
 struct RegFile {
     rd: Option[Reg]

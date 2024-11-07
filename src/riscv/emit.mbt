@@ -183,7 +183,9 @@ fn type_of(name: @types.Name) -> @types.Type {
     }
 }
 
-fn regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
+/// It just scans through.
+/// to deal with loops, special taken must be taken in PREVIOUS stages.
+fn basic_regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
     let to_alloc: Array[@types.Name] = [];
 
     // Record all assigned registers
@@ -237,9 +239,8 @@ fn regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
     }
 }
 
-// Despite its name, we will actually substitute for a call to init()
-// if init() is present
-// Because init() must be called earlier than main()
+/// Eliminates the main call that gets added in parser
+/// We will call main later on, in emit_main
 pub fn eliminate_main_call(expr: @closure.Expr) -> @closure.Expr {
     match expr {
         Let(a, val, w) => {
@@ -791,22 +792,29 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             if (is_fake(b)) {
                 let f_name = real(b);
 
-                if (find_func(f_name).is_empty().not()) {
+                if (is_closure(f_name)) {
                     // must pack
                     let temp = fake(Ptr);
                     let closure = fake(type_of(f_name));
 
-                    result.append(make_closure(f_name, closure));
                     result.push(Li(A0, "16"));
                     result.push(Call("minimbt_malloc"));
-                    result.push(La(temp, f_name.to_string()));
-                    result.push(Sd(temp, { base: A0, offset: 0 }));
+
+                    // If this is global, must first make it closure
+                    // otherwise this is already available
+                    if (find_func(f_name).is_empty().not()) {
+                        result.append(make_closure(f_name, closure));
+
+                        result.push(La(temp, f_name.to_string()));
+                        result.push(Sd(temp, { base: A0, offset: 0 }));   
+                    } else {
+                        result.push(Sd(b, { base: A0, offset: 0 }));
+                    }
 
                     if (has_env(f_name)) {
                         let env = get_env(f_name);
                         result.push(Sd(env, { base: A0, offset: 8 }));
                     }
-
                     result.push(Mv(closure, A0));
                     result.push(La(temp, real(a).to_string()));
                     result.push(Sd(closure, { base: temp, offset: 0 }));
@@ -891,7 +899,7 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     return result |> tidy_fp;
 }
 
-// If mv/ld/sd FP registers, make it correct
+/// If mv/ld/sd FP registers, make it correct
 fn tidy_fp(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     
@@ -924,7 +932,7 @@ fn tidy_fp(asm: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
-// Outputs labels for global variables
+/// Outputs labels for global variables
 pub fn emit_global(logger: Logger) -> Unit {
     logger.write_string(".section .data\n");
     for x in @closure.glob.val {
@@ -936,7 +944,7 @@ pub fn emit_global(logger: Logger) -> Unit {
     }
 }
 
-// Entry point of program
+/// Entry point of program
 pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
     asm.clear();
 
@@ -1004,12 +1012,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     ];
 
     if (fun.name._ == "minimbt_main") {
-        // If there is init(), then call init() first
-        if (t.funcs.filter(fn (x) { x.old_name.name == Some("init") }).length() > 0) {
-            pseudobody.push(Call("init"));
-        }
-
-        // Then call main()
+        // call main()
         if (t.funcs.filter(fn (x) { x.old_name.name == Some("main") }).length() > 0) {
             pseudobody.push(Call("main"));
         }
@@ -1018,12 +1021,12 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         pseudobody.push(Mv(A0, Zero));
     }
 
-    regalloc(pseudobody, false);
+    basic_regalloc(pseudobody, false);
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
     t_clear();
-    regalloc(body, true);
+    basic_regalloc(body, true);
 
     // Do optimizations
     let mut opt = body
@@ -1035,7 +1038,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             |> opt_peephole_2
             |> opt_inline_var
             |> opt_remove_write
-            |> opt_remove_unread;
+            |> opt_remove_unread
+            |> opt_inline_loopvar
     }
 
     offset = t.offset;
@@ -1125,7 +1129,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     AssemblyFunction :: {
         name:
             // We also want entry point to be unmodified
-            if (["minimbt_main", "main", "init"].contains(fun.name._)) {
+            if (["minimbt_main", "main"].contains(fun.name._)) {
                 fun.name._
             } else {
                 fun.old_name.to_string()
@@ -1143,7 +1147,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.funcs = program.fundefs.copy();
 
-    // emit_main() relies on t.funcs to determine if there is call to init()
     t.funcs.push(emit_main(program.body));
 
     // Remove all captures of toplevel functions

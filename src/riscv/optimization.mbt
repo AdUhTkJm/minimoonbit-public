@@ -433,25 +433,21 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
-
-// If something is irrelevant with the loop variable
-// then put these things outside the loop
-
-// Note: this function expects unconsolidated assembly
-// (more like a 3-address IR)
-pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
-    // Begin of a loop (at the label)
+fn identify_loop(body: Array[RvAsm]) -> Option[(Int, Int)] {
+        // Begin of a loop (at the label)
     let mut begin = 0;
     while (begin < body.length()) {
         match body[begin] {
-            // The label must always be present
-            // we just inserted it to body in emit_fn()
             Label(a) => if (a.ends_with("_tailrec")) {
                 break;
             }
             _ => ();
         }
         begin += 1;
+    }
+
+    if (begin == body.length()) {
+        return None;
     }
 
     // End of a loop (at the j instruction)
@@ -468,8 +464,25 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
 
     // There's simply no loop in the function
     if (end == body.length()) {
+        return None;
+    }
+
+    return Some((begin, end));
+}
+
+
+// If something is irrelevant with the loop variable
+// then put these things outside the loop
+
+// Note: this function expects unconsolidated assembly
+// (more like a 3-address IR)
+pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
+    let range = identify_loop(body);
+    if (range == None) {
         return body;
     }
+
+    let (begin, end) = range.unwrap();
 
     // Verify only one path does tail call;
     // Don't handle things like
@@ -511,6 +524,8 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
 
     while (i < end) {
         match body[i] {
+            // In opt_realloc we test for these
+            // so when you add something here, must update another
             La(a, Label(x)) | Li(a, x) => {
                 fn rename(r) {
                     match values[x] {
@@ -554,8 +569,103 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
     return result;
 }
 
+/// This function inlines loop invariants
+pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
+    // First hack that each non-argument register in opt
+    // should be a Fake, in order to get it allocated
 
-// Make all fake registers real
+    fn enfake(reg) {
+        if (allocatable_list.contains(reg).not()) {
+            reg;
+        } else {
+            let v = @types.Name::name_only("__r.\{reg}");
+            @knf.typing[v] = if (freg_all_list.contains(reg)) {
+                @types.Type::Double
+            } else {
+                @types.Type::Int
+            };
+            Fake(v);
+        }
+    }
+
+    // Still need to protect looping variables
+    // Identify a loop (same as op)
+    
+    let range = identify_loop(body);
+    let mut new_body = body;
+    if (range.is_empty()) {
+        return body;
+    }
+
+    let (begin, end) = range.unwrap();
+    let invar: Map[Reg, String] = {};
+
+    for x in body[:begin] {
+        // These are the exact things we extract for loop invariants
+        // if you change that function, must also change here
+        match x {
+            La(a, Label(x)) | Li(a, x)=> {
+                invar[a] = x;
+            }
+            _ => ()
+        }
+    }
+
+    let middle = [];
+    for x in body[begin: end] {
+        match x {
+            Add(a, b, c) => {
+                if (invar.contains(c)) {
+                    let v = atoi(invar[c].unwrap());
+                    if (v.is_empty().not()) {
+                        let w = v.unwrap();
+                        if (w < 2048 && w >= -2048) {
+                            middle.push(Addi(a, b, w));
+                            continue;
+                        }
+                    }
+                }
+                if (invar.contains(b)) {
+                    let v = atoi(invar[b].unwrap());
+                    if (v.is_empty().not()) {
+                        let w = v.unwrap();
+                        if (w < 2048 && w >= -2048) {
+                            middle.push(Addi(a, c, w));
+                            continue;
+                        }
+                    }
+                }
+            }
+            Sub(a, b, c) => {
+                if (invar.contains(c)) {
+                    let v = atoi(invar[c].unwrap());
+                    if (v.is_empty().not()) {
+                        let w = v.unwrap();
+                        if (w <= 2048 && w > -2048) {
+                            middle.push(Addi(a, b, -w));
+                            continue;
+                        }
+                    }
+                }
+            }
+            Jalr(a) => {
+                if (invar.contains(a)) {
+                    middle.push(J(invar[a].unwrap()));
+                    continue;
+                }
+            }
+            _ => ()
+        }
+        middle.push(x);
+    }
+    
+    new_body = [..body[:begin], ..middle, ..body[end: ]];
+
+    return new_body;
+}
+
+
+/// Make all fake registers real
 pub fn consolidate(body: Array[RvAsm]) -> Array[RvAsm] {
     return body.map(fn (asm) { register_rename(asm, defake, defake); });
 }
