@@ -4,7 +4,7 @@ let arr: Array[Int] = Array::make(n, 0);
 
 let is_end: Array[Bool] = Array::make(1, false);
 
-let g: Unit = {
+fn init {
     fn fill(x) {
         if (x == n) {
             ()
@@ -111,19 +111,24 @@ fn max(a: Int, b: Int) -> Int {
     }
 };
 
-fn fannkuch(n: Int) -> Int {
-    fn do_loop(mx) {
-        let new_mx = max(mx, flip_count(arr));
-        if not(next_permutation(arr)) {
-            do_loop(new_mx)
-        } else {
-            mx
-        }
+fn init {
+    fn fannkuch(n: Int) -> Int {
+        fn do_loop(mx) {
+            let new_mx = max(mx, flip_count(arr));
+            if not(next_permutation(arr)) {
+                do_loop(new_mx)
+            } else {
+                mx
+            }
+        };
+        
+        do_loop(-1)
     };
 
-    do_loop(-1)
+    let _ = print_int(fannkuch(7));
+    ()
 };
 
 fn main {
-    print_int(fannkuch(7))
+    print_endline()
 };

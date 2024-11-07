@@ -12,7 +12,7 @@ pub struct OptEnv {
     mut value: Map[@types.Name, Constant]
 
     // If the tail recursion is successful
-    mut tail_success: Bool
+    mut tail_success: Tristate
 }
 
 pub enum Constant {
@@ -23,6 +23,12 @@ pub enum Constant {
     Refer(@types.Name)
     Unknown
 } derive(Show)
+
+pub enum Tristate {
+    Yes
+    No
+    Maybe
+} derive(Show, Eq)
 
 pub fn Constant::op_equal(self: Constant, other: Constant) -> Bool {
     match (self, other) {
@@ -44,7 +50,7 @@ fn OptEnv::new() -> OptEnv {
         is_se_free: Map::new(),
         fundef: Map::new(),
         value: Map::new(),
-        tail_success: false,
+        tail_success: No,
     }
     return env;
 }
@@ -78,6 +84,7 @@ pub fn delete_refer(x: Constant) -> Constant {
         t => t
     }
 }
+
 pub fn value_of(name: Name) -> Constant {
     match e.value[name] {
         Some(x) => delete_refer(x)
@@ -328,11 +335,11 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
             LetRec({ name: name, ty: ty, args: args, body: opt_tail_rec_(syn, name) }, opt_tail_rec_(w, func))
         IfLe(a, b, body, otherwise) | IfEq(a, b, body, otherwise) => {
             let left = opt_tail_rec_(body, func);
-            if (e.tail_success.not()) {
+            if (e.tail_success == No) {
                 return knf;
             }
             let right = opt_tail_rec_(otherwise, func);
-            if (e.tail_success.not()) {
+            if (e.tail_success == No) {
                 return knf;
             }
 
@@ -344,26 +351,29 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
         }
         Apply(x, args) => {
             if (value_of(x) == Fun(func)) {
-                e.tail_success = true;
+                e.tail_success = Maybe;
                 CallTailRec(x, args)
             } else {
-                e.tail_success = false;
+                e.tail_success = No;
                 Apply(x, args)
             }
         }
         Unit | Int(_) | Double(_) | Tuple(_) | Var(_) | Get(_) => {
-            e.tail_success = true;
+            e.tail_success = Yes;
             knf
         }
         t => {
-            e.tail_success = false;
+            if (e.tail_success == Maybe) {
+                e.tail_success = No;
+            }
+
             t
         }
     }
 }
 
 pub fn opt_tail_rec(knf: Knf) -> Knf {
-    e.tail_success = false;
+    e.tail_success = No;
     opt_tail_rec_(knf, Name::slot_only(-1));
 }
 
