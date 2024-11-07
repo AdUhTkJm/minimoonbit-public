@@ -1021,17 +1021,19 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     regalloc(pseudobody, false);
 
     // Prologue and Epilogue is dealt with at output()
-    let body = tidy(pseudobody);
+    let body = tidy(pseudobody) |> opt_loop_invariant(fun);
     t_clear();
     regalloc(body, true);
 
-    let mut opt = body |> consolidate;
+    // Do optimizations
+    let mut opt = body
+            |> consolidate;
+    
     for i = 0; i < 3; i = i + 1 {
         opt = opt
             |> opt_remove_identical
             |> opt_peephole_2
             |> opt_inline_var
-            |> opt_remove_identical
             |> opt_remove_write
             |> opt_remove_unread;
     }

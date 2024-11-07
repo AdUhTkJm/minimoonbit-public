@@ -359,7 +359,6 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
             }
             Mv(x, y) => {
                 if (imms.contains(y)) {
-                    println("convert: \{body[i]} (where \{y} = \{imms[y].unwrap()})")
                     result.push(Li(x, imms[y].unwrap()));
                 } else {
                     result.push(register_rename(body[i], fn (reg) { deref(ref, reg) }, fn (x) {x}));
@@ -413,6 +412,126 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
+
+// If something is irrelevant with the loop variable
+// then put these things outside the loop
+
+// Note: this function expects unconsolidated assembly
+// (more like a 3-address IR)
+pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
+    // Begin of a loop (at the label)
+    let mut begin = 0;
+    while (begin < body.length()) {
+        match body[begin] {
+            // The label must always be present
+            // we just inserted it to body in emit_fn()
+            Label(a) => if (a.ends_with("_tailrec")) {
+                break;
+            }
+            _ => ();
+        }
+        begin += 1;
+    }
+
+    // End of a loop (at the j instruction)
+    let mut end = begin + 1;
+    while (end < body.length()) {
+        match body[end] {
+            J(a) => if (a._.ends_with("_tailrec")) {
+                break;
+            }
+            _ => ();
+        }
+        end += 1;
+    }
+
+    // There's simply no loop in the function
+    if (end == body.length()) {
+        return body;
+    }
+
+    // Verify only one path does tail call;
+    // Don't handle things like
+    // f() { if (a) { 1 } else { if (..) { f() } else { f() } } }
+    // because it's really complicated
+
+    let mut i = end + 1;
+    while (i < body.length()) {
+        match body[i] {
+            J(a) => if (a._.ends_with("_tailrec")) {
+                return body;
+            }
+            _ => ()
+        }
+        i += 1;
+    }
+
+    // Now verify the invariants
+    // At this stage, everything is immutable
+    // So checking rs1 and rs2 should be enough
+
+    i = begin + 1;
+
+    let involved = [];
+    let uninvolved = [];
+    let reg_preserve = [];
+    let inv_regs: @immut/hashset.T[Reg] =
+        @immut/hashset.T::from_array(fun.args.map(fn (x) { Fake(x) }) + reg_arg_list);
+
+    let values: Map[String, Reg] = {};
+    let map: Map[Reg, Reg] = {};
+
+    fn rrename(r) {
+        match map[r] {
+            Some(t) => t
+            None => r
+        }
+    }
+
+    while (i < end) {
+        match body[i] {
+            La(a, Label(x)) | Li(a, x) => {
+                fn rename(r) {
+                    match values[x] {
+                        Some(t) => { map[r] = t; t }
+                        None => r
+                    }
+                }
+                if (inv_regs.contains(a).not()) {
+                    if (values.contains(x).not()) {
+                        values[x] = a;
+                    }
+
+                    uninvolved.push(register_rename(body[i], rename, rename));
+                } else {
+                    involved.push(register_rename(body[i], rename, rename));
+                }
+            }
+            _ => involved.push(register_rename(body[i], rrename, rrename));
+        }
+        i += 1;
+    }
+
+    for x in uninvolved {
+        let used = reg_used(x);
+        if (used.rd.is_empty().not()) {
+            reg_preserve.push(Mv(used.rd.unwrap(), used.rd.unwrap()));
+        }
+        if (used.rs1.is_empty().not()) {
+            reg_preserve.push(Mv(used.rs1.unwrap(), used.rs1.unwrap()));
+        }
+        if (used.rs2.is_empty().not()) {
+            reg_preserve.push(Mv(used.rs2.unwrap(), used.rs2.unwrap()));
+        }
+    }
+
+    return  Array::from_iter(body[:begin].iter()) +
+        uninvolved + [Label("\{fun.old_name}_tailrec")] + involved + reg_preserve +
+            Array::from_iter(body[end:].iter());
+}
+
+
+// Make all fake registers real
 pub fn consolidate(body: Array[RvAsm]) -> Array[RvAsm] {
     return body.map(fn (asm) { register_rename(asm, defake, defake); });
 }
