@@ -114,7 +114,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
         Tuple(x) => {
             let t_args = x.map(fn (z) { self.new_temp(self.lookup(z)) });
 
-            x.foldi(~init = Tuple(t_args),
+            x.rev_foldi(~init = Tuple(t_args),
             fn (i, knf, arg) { Let(t_args[i], self.to_knf(arg), knf)});
         }
         Array(len, elem) => {
@@ -211,7 +211,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             let t_args = args.map(fn (z) { self.new_temp(self.lookup(z)) });
             let t_f = self.new_temp(self.lookup(f));
             Let(t_f, self.to_knf(f),
-                args.foldi(~init = Apply(t_f, t_args),
+                args.rev_foldi(~init = Apply(t_f, t_args),
                 fn (i, knf, arg) { Let(t_args[i], self.to_knf(arg), knf)}));
         }
         If(cond, body, otherwise) => {

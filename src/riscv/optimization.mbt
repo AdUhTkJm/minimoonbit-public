@@ -2,10 +2,11 @@ fn defake(reg: Reg) -> Reg {
     match reg {
         Fake(name) => match t.regs[name] {
             Some(w) => w
-            None => if (type_of(name) == Unit) {
+            None => {
+                if (type_of(name) != Unit) {
+                    println("emit: cannot find \{reg}")
+                }
                 Zero
-            } else {
-                @util.die("emit: cannot find \{reg}")
             }
         }
         Arg(i) => reg_arg_list[i]
