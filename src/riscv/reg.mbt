@@ -75,6 +75,7 @@ pub enum Reg {
     Arg(Int)
     Farg(Int)
     Spilt(Int)
+    SpiltDouble(Int)
 } derive(Eq, Compare, Hash)
 
 pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5]
@@ -175,6 +176,7 @@ pub fn Reg::to_string(self : Reg) -> String {
         Arg(i) => "arg.\{i}"
         Farg(i) => "farg.\{i}"
         Spilt(i) => "spilt.\{i}"
+        SpiltDouble(i) => "spilt.d.\{i}"
     }
 }
 
@@ -191,9 +193,6 @@ pub let freg_temp_list : Array[Reg] = [
     Ft5,
     Ft6,
     Ft7,
-    Ft8,
-    Ft9,
-    Ft10,
 ]
 
 pub let freg_saved_list : Array[Reg] = [
@@ -387,4 +386,19 @@ fn register_rename(asm: RvAsm, rs_fn: (Reg) -> Reg, rd_fn: (Reg) -> Reg) -> RvAs
         Jr(rs1) => Jr(rs_fn(rs1))
         t => t
     }
+}
+
+pub fn is_intreg(r: Reg) -> Bool {
+    match r {
+        Spilt(_) => true
+        SpiltDouble(_) => false
+        Arg(_) => true
+        Farg(_) => false
+        Fake(x) => type_of(x) != Double
+        z => reg_all_list.contains(z);
+    }
+}
+
+pub fn is_freg(r: Reg) -> Bool {
+    return is_intreg(r).not();
 }

@@ -571,26 +571,6 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
 
 /// This function inlines loop invariants
 pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
-    // First hack that each non-argument register in opt
-    // should be a Fake, in order to get it allocated
-
-    fn enfake(reg) {
-        if (allocatable_list.contains(reg).not()) {
-            reg;
-        } else {
-            let v = @types.Name::name_only("__r.\{reg}");
-            @knf.typing[v] = if (freg_all_list.contains(reg)) {
-                @types.Type::Double
-            } else {
-                @types.Type::Int
-            };
-            Fake(v);
-        }
-    }
-
-    // Still need to protect looping variables
-    // Identify a loop (same as op)
-    
     let range = identify_loop(body);
     let mut new_body = body;
     if (range.is_empty()) {
@@ -662,6 +642,81 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
     new_body = [..body[:begin], ..middle, ..body[end: ]];
 
     return new_body;
+}
+
+/// This function redoes register allocation
+/// (Map existing allocation to another one)
+/// in case we used less register after optimization
+pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
+    t.offset = 0;
+
+    let rename: Map[Reg, Reg] = {};
+
+    let mut has_call = false;
+    for x in body {
+        match x {
+            Call(_) | Jalr(_) => has_call = true;
+            _ => ()
+        }
+    }
+
+    let list = if (has_call) {
+        reg_allocatable_list
+    } else {
+        reg_allocatable_list_biased
+    };
+    let listf = if (has_call) {
+        freg_allocatable_list
+    } else {
+        freg_allocatable_list_biased
+    };
+
+    let mut next = 0;
+    let mut nextf = 0;
+    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S11, S10, T6, Ft8, Ft9, Ft10];
+
+    fn record(r) {
+        match r {
+            Some(reg) => {
+                if (no_rename.contains(reg).not() && rename.contains(reg).not()) {
+                    if (is_freg(reg)) {
+                        if (nextf < listf.length()) {
+                            rename[reg] = listf[nextf];
+                            nextf += 1;
+                        } else {
+                            rename[reg] = SpiltDouble(t.offset);
+                            t.offset += 8;
+                        }
+                    } else {
+                        if (next < list.length()) {
+                            rename[reg] = list[next];
+                            next += 1;
+                        } else {
+                            rename[reg] = Spilt(t.offset);
+                            t.offset += 8;
+                        }
+                    }
+                }
+            }
+            None => ()
+        }
+    }
+
+    for x in body {
+        let used = reg_used(x);
+        record(used.rd);
+        record(used.rs1);
+        record(used.rs2);
+    }
+
+    fn realloc(r) {
+        match rename[r] {
+            Some(reg) => reg
+            None => r
+        }
+    }
+
+    return body.map(fn (x) { register_rename(x, realloc, realloc) });
 }
 
 

@@ -117,7 +117,11 @@ fn reg(r: @types.Name, has_call: Bool) -> Unit {
     }
     
     // Spill
-    t.regs[r] = Spilt(t.offset);
+    if (type_of(r) == Double) {
+        t.regs[r] = SpiltDouble(t.offset);
+    } else {
+        t.regs[r] = Spilt(t.offset);
+    }
     t.offset += 8;
 }
 
@@ -185,6 +189,7 @@ fn type_of(name: @types.Name) -> @types.Type {
 
 /// It just scans through.
 /// to deal with loops, special taken must be taken in PREVIOUS stages.
+/// Updates t.regs[] to store registers.
 fn basic_regalloc(asm: Array[RvAsm], tidy_unused: Bool) -> Unit {
     let to_alloc: Array[@types.Name] = [];
 
@@ -1041,6 +1046,9 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             |> opt_inline_loopvar
     }
 
+    opt = opt
+            |> opt_realloc;
+
     offset = t.offset;
 
     // Preserve registers
@@ -1068,7 +1076,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             continue;
         }
 
-        if (reg_all_list.contains(r)) {
+        if (is_intreg(r)) {
             pre.push(Sd(r, { base: Sp, offset: offset }));
             post.push(Ld(r, { base: Sp, offset: offset }));
         } else {
@@ -1099,7 +1107,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
                 let tpre = [];
                 let tpost = [];
                 let _ = Array::from_iter(temp_used.iter()).mapi(fn (i, r) {
-                    if (reg_all_list.contains(r)) {
+                    if (is_intreg(r)) {
                         tpre.push(Sd(r, { base: Sp, offset: offset + i * 8 }));
                         tpost.push(Ld(r, { base: Sp, offset: offset + i * 8 }));
                     } else {
