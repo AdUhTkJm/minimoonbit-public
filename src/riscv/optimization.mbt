@@ -2,8 +2,7 @@ fn defake(reg: Reg) -> Reg {
     match reg {
         Fake(name) => match t.regs[name] {
             Some(w) => w
-            // At this stage, all unallocated things must be Unit
-            None => A0
+            None => @util.die("emit: cannot find \{reg}");
         }
         Arg(i) => reg_arg_list[i]
         Farg(i) => freg_arg_list[i]

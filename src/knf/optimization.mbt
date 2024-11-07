@@ -12,6 +12,7 @@ pub struct OptEnv {
     mut value: Map[@types.Name, Constant]
 
     // If the tail recursion is successful
+    // Or, "is there anything preventing tail recursion?"
     mut tail_success: Tristate
 }
 
@@ -28,6 +29,7 @@ pub enum Tristate {
     Yes
     No
     Maybe
+    Unknown
 } derive(Show, Eq)
 
 pub fn Constant::op_equal(self: Constant, other: Constant) -> Bool {
@@ -50,7 +52,7 @@ fn OptEnv::new() -> OptEnv {
         is_se_free: Map::new(),
         fundef: Map::new(),
         value: Map::new(),
-        tail_success: No,
+        tail_success: Unknown,
     }
     return env;
 }
@@ -125,7 +127,8 @@ fn get_used(knf: Knf) -> Unit {
             get_used(w);
         }
 
-        LetRec({ body: syn, .. }, w) => {
+        LetRec({ body: syn, args: args, .. }, w) => {
+            e.add_used(args);
             get_used(syn);
             get_used(w);
         }
@@ -334,13 +337,13 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
             LetRec({ name: name, ty: ty, args: args, body: opt_tail_rec_(syn, name) }, opt_tail_rec_(w, func))
         IfLe(a, b, body, otherwise) | IfEq(a, b, body, otherwise) => {
-            let left = opt_tail_rec_(body, func);
+            let mut left = opt_tail_rec_(body, func);
             if (e.tail_success == No) {
-                return knf;
+                left = body;
             }
-            let right = opt_tail_rec_(otherwise, func);
+            let mut right = opt_tail_rec_(otherwise, func);
             if (e.tail_success == No) {
-                return knf;
+                right = otherwise;
             }
 
             match knf {
@@ -354,7 +357,9 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
                 e.tail_success = Maybe;
                 CallTailRec(x, args)
             } else {
-                e.tail_success = No;
+                if (e.tail_success == Maybe) {
+                    e.tail_success = No;
+                }
                 Apply(x, args)
             }
         }
@@ -373,7 +378,7 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
 }
 
 pub fn opt_tail_rec(knf: Knf) -> Knf {
-    e.tail_success = No;
+    e.tail_success = Unknown;
     opt_tail_rec_(knf, Name::slot_only(-1));
 }
 

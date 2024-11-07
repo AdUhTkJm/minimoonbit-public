@@ -87,7 +87,6 @@ fn globals(e: @types.Syntax) -> NameSet {
 }
 
 
-
 pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
     match s {
         Unit => Unit

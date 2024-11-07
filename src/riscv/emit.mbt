@@ -468,9 +468,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             if (ty == Int) {
                 asm.push(Bne(Fake(a), Fake(b), l_else));
             } else {
-                let r = fake(Int);
-                asm.push(FeqD(r, Fake(a), Fake(b)));
-                asm.push(Beq(r, Zero, l_else));
+                let tmp = fake(Int);
+                asm.push(FeqD(tmp, Fake(a), Fake(b)));
+                asm.push(Beq(tmp, Zero, l_else));
             }
             
             let e_body = emit_expr(body);
@@ -497,9 +497,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             if (ty == Int) {
                 asm.push(Bgt(Fake(a), Fake(b), l_else));
             } else {
-                let r = fake(Int);
-                asm.push(FleD(r, Fake(a), Fake(b)));
-                asm.push(Beq(r, Zero, l_else));
+                let tmp = fake(Int);
+                asm.push(FleD(tmp, Fake(a), Fake(b)));
+                asm.push(Beq(tmp, Zero, l_else));
             }
             
             let e_body = emit_expr(body);
@@ -692,13 +692,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
     }
 }
 
-fn weak_eq(a: Reg, b: Reg) -> Bool {
-    match (a, b) {
-        (Fake(x), Fake(y)) => t.regs[x] == t.regs[y]
-        _ => a == b
-    }
-}
-
 // Returns the name of a function
 fn name_fn(f_name: @types.Name) -> String {
     if (externs.contains(f_name.name.unwrap())) {
@@ -866,7 +859,7 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         if (find_func(f_name).is_empty().not()) {
             // Note that this can very much be "mv a0, b"
             // And we use a0 intensively, so have to take care
-            let target = if (weak_eq(a, A0)) { fake(type_of(f_name)) } else { a };
+            let target = if (a == A0) { fake(type_of(f_name)) } else { a };
 
             result.append(make_closure(f_name, target));
             result.push(Mv(a, target));
