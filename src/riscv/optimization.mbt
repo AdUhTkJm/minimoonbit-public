@@ -60,10 +60,13 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
         // Must clear for jumps
         // (No need to clear for function calls because all registers are preserved)
         match asm {
-            J(label) | Bne(_, _, label) | Bgt(_, _, label) | Beq(_, _, label) => {
+            J(label) => {
                 used_labels = used_labels.add(label);
                 last_read.clear();
                 last_written.clear();
+            }
+            Bne(_, _, label) | Bgt(_, _, label) | Beq(_, _, label) => {
+                used_labels = used_labels.add(label);
             }
             La(_, label) => {
                 // The only kind of label that might jump backwards
@@ -314,20 +317,40 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
         match body[i] {
             Addi(a, b, 0) => {
                 // Remove "addi a, a, 0"
-                if (weak_eq(a, b).not()) {
+                if (a != b) {
                     result.push(body[i]);
                 }
             }
             Mv(a, b) => {
                 // Remove "mv a, a"
-                if (weak_eq(a, b).not()) {
+                // Remove "mv zero, b"
+                if (a != b && a != Zero) {
+                    result.push(body[i]);
+                }
+            }
+            Li(a, _) => {
+                // Remove "li zero, b"
+                if (a != Zero) {
                     result.push(body[i]);
                 }
             }
             FmvD(a, b) => {
                 // Remove "fmv.d a, a"
-                if (weak_eq(a, b).not()) {
+                if (a != b) {
                     result.push(body[i]);
+                }
+            }
+            J(a) => {
+                result.push(body[i]);
+                if (a._.ends_with("_tailrec")) {
+                    i += 1;
+                    while (i < body.length()) {
+                        match body[i] {
+                            Label(_) => break;
+                            _ => i += 1;
+                        }
+                    }
+                    continue;
                 }
             }
             _ => result.push(body[i])
@@ -384,9 +407,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         match body[i] {
             Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); imms.remove(a); }
 
-            Label(_) | J(_) | Bne(_) | Beq(_) |
-            Bge(_) | Bgeu(_) | Bgt(_) | Ble(_) | Blt(_) |
-            Bltu(_) => { ref.clear(); label.clear(); imms.clear(); }
+            Label(_) | J(_) => { ref.clear(); label.clear(); imms.clear(); }
 
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
@@ -478,7 +499,7 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
     let inv_regs: @immut/hashset.T[Reg] =
         @immut/hashset.T::from_array(fun.args.map(fn (x) { Fake(x) }) + reg_arg_list);
 
-    let values: Map[String, Reg] = {};
+    let values: Map[String, Reg] = { "0": Zero };
     let map: Map[Reg, Reg] = {};
 
     fn rrename(r) {
@@ -525,9 +546,12 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
         }
     }
 
-    return  Array::from_iter(body[:begin].iter()) +
+
+    let result = Array::from_iter(body[:begin].iter()) +
         uninvolved + [Label("\{fun.old_name}_tailrec")] + involved + reg_preserve +
             Array::from_iter(body[end:].iter());
+
+    return result;
 }
 
 
