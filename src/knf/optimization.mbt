@@ -317,15 +317,11 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
 
 fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
     match knf {
-        Let(a, val, w) => {
-            let v = opt_tail_rec_(val, func);
-            // The function is recursive but not tail-recursive
-            if (e.tail_success) {
-                Let(a, val, w);
-            } else {
-                Let(a, v, opt_tail_rec_(w, func));
-            }
-        }
+        // We don't want to make intermediate calls in "val" also tail-recursive
+        // but if there are functions in "val", we can make them tail-recursive
+        // so we still want to call opt_tail_rec_ on it, but giving it (-1)
+        Let(a, val, w) =>
+            Let(a, opt_tail_rec_(val, Name::slot_only(-1)), opt_tail_rec_(w, func));
         LetTuple(arr, x, w) =>
             LetTuple(arr, x, opt_tail_rec_(w, func))
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
