@@ -102,18 +102,16 @@ let where: Where = { x: 0, fx: 0 };
 
 fn which() -> Reg {
     match where.x {
-        0 => S10
-        1 => S11
-        2 => T6
+        0 => S9
+        1 => S10
         x => @util.die("emit: bad which(): \{x}")
     }
 }
 
 fn whichf() -> Reg {
     match where.fx {
-        0 => Ft8
-        1 => Ft9
-        2 => Ft10
+        0 => Fs10
+        1 => Fs11
         x => @util.die("emit: bad whichf(): \{x}")
     }
 }
@@ -151,16 +149,38 @@ fn unspill(logger: Logger, r: Reg) -> Unit {
     let x = offset(r);
     if (x != -1) {
         if (is_freg(r)) {
-            where.fx -= 1;
-            let t = whichf();
-            write2mem(logger, "fsd", t, { base: Sp, offset: x });
+            logger.write_string("\n    ");
+            write2mem(logger, "fsd", S10, { base: Sp, offset: x });
             logger.write_string("\n    ");
         } else {
-            where.x -= 1;
-            let t = which();
-            write2mem(logger, "sd", t, { base: Sp, offset: x });
+            logger.write_string("\n    ");
+            write2mem(logger, "sd", S10, { base: Sp, offset: x });
             logger.write_string("\n    ");
         }
+    }
+}
+
+fn despill(r: Reg) -> Unit {
+    let x = offset(r);
+    if (x != -1) {
+        if (is_freg(r)) {
+            where.fx -= 1;
+        } else {
+            where.x -= 1;
+        }
+    }
+}
+
+fn spill_write(r: Reg) -> Reg {
+    let x = offset(r);
+    if (x != -1) {
+        if (is_freg(r)) {
+            Fs10
+        } else {
+            S10
+        }
+    } else {
+        r
     }
 }
 
@@ -171,7 +191,7 @@ fn write3(
     rs1 : Reg,
     rs2 : Reg
 ) -> Unit {
-    let t1 = spill(logger, rd);
+    let t1 = spill_write(rd);
     let t2 = spill(logger, rs1);
     let t3 = spill(logger, rs2);
     logger.write_string(op)
@@ -181,11 +201,8 @@ fn write3(
     Show::output(t2, logger)
     logger.write_string(", ")
     Show::output(t3, logger)
-    if (where.x != 0 || where.fx != 0) {
-        logger.write_string("\n    ")
-    }
-    unspill(logger, rs2);
-    unspill(logger, rs1);
+    despill(rs2);
+    despill(rs1);
     unspill(logger, rd);
 }
 
@@ -196,7 +213,7 @@ fn write2imm(
     rs1 : Reg,
     imm : Int
 ) -> Unit {
-    let t1 = spill(logger, rd);
+    let t1 = spill_write(rd);
     let t2 = spill(logger, rs1);
     logger.write_string(op)
     logger.write_string(" ")
@@ -205,11 +222,7 @@ fn write2imm(
     Show::output(t2, logger)
     logger.write_string(", ")
     logger.write_string(imm.to_string())
-    
-    if (where.x != 0 || where.fx != 0) {
-        logger.write_string("\n    ")
-    }
-    unspill(logger, rs1);
+    despill(rs1);
     unspill(logger, rd);
 }
 
@@ -229,12 +242,8 @@ fn write2label(
     Show::output(t2, logger)
     logger.write_string(", ")
     logger.write_string(label._)
-    
-    if (where.x != 0 || where.fx != 0) {
-        logger.write_string("\n    ")
-    }
-    unspill(logger, rs2);
-    unspill(logger, rs1);
+    despill(rs2);
+    despill(rs1);
 }
 
 fn write2mem(
@@ -244,7 +253,7 @@ fn write2mem(
     mem : MemAccess[Reg, Int]
 ) -> Unit {
     
-    let t1 = spill(logger, rd);
+    let t1 = spill_write(rd);
     let t2 = spill(logger, mem.base);
     logger.write_string(op)
     logger.write_string(" ")
@@ -254,11 +263,8 @@ fn write2mem(
     logger.write_string("(")
     Show::output(t2, logger)
     logger.write_string(")")
-    if (where.x != 0 || where.fx != 0) {
-        logger.write_string("\n    ")
-    }
-    unspill(logger, mem.base);
     unspill(logger, rd);
+    despill(mem.base);
 }
 
 fn write2(
@@ -267,17 +273,14 @@ fn write2(
     rd : Reg,
     rs1 : Reg
 ) -> Unit {
-    let t1 = spill(logger, rd);
+    let t1 = spill_write(rd);
     let t2 = spill(logger, rs1);
     logger.write_string(op)
     logger.write_string(" ")
     Show::output(t1, logger)
     logger.write_string(", ")
     Show::output(t2, logger)
-    if (where.x != 0 || where.fx != 0) {
-        logger.write_string("\n    ")
-    }
-    unspill(logger, rs1);
+    despill(rs1);
     unspill(logger, rd);
 }
 
@@ -349,25 +352,19 @@ impl Show for RvAsm with output(self, logger) {
         FmvXD(rd, rs1) => write2(logger, "fmv.x.d", rd, rs1)
         Nop => logger.write_string("nop")
         La(rd, label) => {
-            let t1 = spill(logger, rd);
+            let t1 = spill_write(rd);
             logger.write_string("la ")
             Show::output(t1, logger)
             logger.write_string(", ")
             logger.write_string(label._)
-            if (where.x != 0) {
-                logger.write_string("\n    ")
-            }
             unspill(logger, rd);
         }
         Li(rd, imm) => {
-            let t1 = spill(logger, rd);
+            let t1 = spill_write(rd);
             logger.write_string("li ")
             Show::output(t1, logger)
             logger.write_string(", ")
             logger.write_string(imm)
-            if (where.x != 0) {
-                logger.write_string("\n    ")
-            }
             unspill(logger, rd);
         }
         Neg(rd, rs1) => write2(logger, "neg", rd, rs1)
@@ -382,19 +379,13 @@ impl Show for RvAsm with output(self, logger) {
             let t1 = spill(logger, rs1);
             logger.write_string("jalr ")
             Show::output(t1, logger)
-            if (where.x != 0) {
-                logger.write_string("\n    ")
-            }
-            unspill(logger, rs1);
+            despill(rs1);
         }
         Jr(rs1) => {
             let t1 = spill(logger, rs1);
             logger.write_string("jr ")
             Show::output(t1, logger)
-            if (where.x != 0) {
-                logger.write_string("\n    ")
-            }
-            unspill(logger, rs1);
+            despill(rs1);
         }
         Call(label) => {
             logger.write_string("call ")

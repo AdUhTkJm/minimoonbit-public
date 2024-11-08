@@ -109,8 +109,11 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             }
         }
         Closure => {
-            let closure_ir = @closure.closure(self.opt_knf.unwrap())
-            self.closure_ir = Some(closure_ir)
+            if (wasm.val) {
+                self.closure_ir = Some(@closure.initial(self.opt_knf.unwrap()));
+            } else {
+                self.closure_ir = Some(@closure.closure(self.opt_knf.unwrap()))
+            }
         }
         Asm => {
             if (js.val.not() && wasm.val.not()) {

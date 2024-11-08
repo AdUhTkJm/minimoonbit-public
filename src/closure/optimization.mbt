@@ -130,7 +130,6 @@ fn get_used(expr: Expr) -> Unit {
 fn side_effect_free(expr: Expr) -> Bool {
     match expr {
         Call(f, _) | CallTailRec(f, _) | CallClosure(f, _) => {
-            println("\{f}: side effect free: \{@knf.e.is_se_free[f]}")
             @knf.e.is_se_free[f] == Some(true)
         }
         CallExternal(name, _) =>
@@ -175,7 +174,6 @@ pub fn opt_remove_unused(program: Program) -> Program {
     for x in program.fundefs {
         get_used(x.body);
         x.body = opt_remove_unused_(x.body);
-        println(x.body);
     }
     return program;
 }

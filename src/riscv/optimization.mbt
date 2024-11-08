@@ -697,7 +697,7 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let mut next = 0;
     let mut nextf = 0;
-    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S11, S10, T6, Ft8, Ft9, Ft10];
+    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S9, S10, S11, Fs10, Fs11];
 
     fn record(r) {
         match r {

@@ -209,7 +209,7 @@ fn amend(expr: Expr) -> Expr {
     }
 }
 
-fn initial(prog: @knf.Knf) -> Program {
+pub fn initial(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
     globvar.val = global_vars(prog);
     let body = convert(prog);

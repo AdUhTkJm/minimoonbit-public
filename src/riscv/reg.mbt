@@ -78,7 +78,7 @@ pub enum Reg {
     SpiltDouble(Int)
 } derive(Eq, Compare, Hash)
 
-pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5]
+pub let reg_temp_list : Array[Reg] = [T0, T1, T2, T3, T4, T5, T6]
 
 pub let reg_saved_list : Array[Reg] = [
     // S0, <- fp
@@ -90,7 +90,6 @@ pub let reg_saved_list : Array[Reg] = [
     S6,
     S7,
     S8,
-    S9,
 ]
 
 pub let reg_arg_list: Array[Reg] = [A0, A1, A2, A3, A4, A5, A6, A7]
@@ -193,6 +192,9 @@ pub let freg_temp_list : Array[Reg] = [
     Ft5,
     Ft6,
     Ft7,
+    Ft8,
+    Ft9,
+    Ft10
 ]
 
 pub let freg_saved_list : Array[Reg] = [
@@ -206,8 +208,6 @@ pub let freg_saved_list : Array[Reg] = [
     Fs7,
     Fs8,
     Fs9,
-    Fs10,
-    Fs11,
 ]
 
 pub let freg_arg_list: Array[Reg] = [Fa0, Fa1, Fa2, Fa3, Fa4, Fa5, Fa6, Fa7]
