@@ -33,7 +33,6 @@ pub fn Expr::to_json(self : Expr) -> Json {
         Expr::ArrayGet(n1, n2) => ["ArrayGet", n1.to_json(), n2.to_json()]
         Expr::ArrayPut(n1, n2, n3) =>
             ["ArrayPut", n1.to_json(), n2.to_json(), n3.to_json()]
-        Expr::ExternalArray(l) => ["ExternalArray", l._.to_json()]
         _ => []
     }
 }
@@ -112,7 +111,6 @@ pub fn Expr::from_json(json : Json) -> Expr! {
                 Name::from_json!(n2),
                 Name::from_json!(n3),
             )
-        ["ExternalArray", l] => Expr::ExternalArray(l.to_string())
         _ => fail!("invalid json")
     }
 }

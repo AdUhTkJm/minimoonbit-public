@@ -315,12 +315,6 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
             Double(x) => Double(x)
             _ => Var(x)
         }
-        Apply(x, args) => {
-            match value_of(x) {
-                Fun(f) => Apply(f, args);
-                _ => Apply(x, args)
-            }
-        }
         t => t
     }
 }

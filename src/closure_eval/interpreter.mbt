@@ -75,7 +75,7 @@ pub fn ClosureInterpreter::eval(
         Unit => Unit
         Int(i) => Int(i)
         Double(d) => Double(d)
-        Var(v) | FVar(v) => self.find!(v)
+        Var(v) => self.find!(v)
         Neg(x) => {
             let x = self.find!(x)
             match x {
@@ -285,7 +285,6 @@ pub fn ClosureInterpreter::eval(
             }
             Unit
         }
-        ExternalArray(_) => fail!("ExternalArray is not supported")
     }
 }
 

@@ -25,7 +25,6 @@ pub enum Expr {
     IfLe(Name, Name, Expr, Expr)
     Let(Name, Expr, Expr)
     Var(Name)
-    FVar(Name)
     Call(Name, Array[Name])
     CallTailRec(Name, Array[Name])
     CallExternal(Label, Array[Name])
@@ -33,7 +32,8 @@ pub enum Expr {
     LetTuple(Array[Name], Name, Expr)
     ArrayGet(Name, Name)
     ArrayPut(Name, Name, Name)
-    ExternalArray(Label)
+    PackClosure(Name)
+    CallClosure(Name, Array[Name])
 } derive(Show)
 
 pub struct Closure {
@@ -44,13 +44,13 @@ pub struct Closure {
 pub struct FuncDef {
     name : Label
     old_name : Name
-    is_closure : Bool
-    args : Array[Name]
-    captured : Array[Name]
-    body : Expr
+    mut is_closure : Bool
+    mut args : Array[Name]
+    mut captured : Array[Name]
+    mut body : Expr
 } derive(Show)
 
 pub struct Program {
-    fundefs : Array[FuncDef]
-    body : Expr
+    mut fundefs : Array[FuncDef]
+    mut body : Expr
 } derive(Show)

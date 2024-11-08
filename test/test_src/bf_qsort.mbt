@@ -1,5 +1,5 @@
 fn bf_qsort(arr: Array[Int], low: Int, high: Int) -> Unit {
-fn partition(arr: Array[Int], low: Int, high: Int,  pivot_index: Int) -> Int {
+    fn partition(arr: Array[Int], low: Int, high: Int,  pivot_index: Int) -> Int {
   fn swap(arr: Array[Int], fir: Int, sec: Int) -> Unit {
     let temp = arr[fir];
     arr[fir] = arr[sec];

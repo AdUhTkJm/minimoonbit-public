@@ -4,7 +4,7 @@ fn defake(reg: Reg) -> Reg {
             Some(w) => w
             None => {
                 if (type_of(name) != Unit) {
-                    @util.die("emit: cannot find \{reg}")
+                    @util.die("emit: cannot find: \{name}");
                 }
                 Zero
             }
@@ -23,8 +23,8 @@ fn deref(ref: Map[Reg, Reg], reg: Reg) -> Reg {
 }
 
 
-// If a register is written twice without any read in between, the first write can be ignored
-// If a label is never referenced, then it can be ignored
+/// If a register is written twice without any read in between, the first write can be ignored
+/// If a label is never referenced, then it can be ignored
 pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let last_read: Map[Reg, Int] = Map::new();
     let last_written: Map[Reg, Int] = Map::new();
@@ -120,8 +120,8 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     return opt;
 }
 
-// If a register is never read in the whole function, remove all writes to it
-// (Except a0, ..., a7 which are arguments)
+/// If a register is never read in the whole function, remove all writes to it
+/// (Except a0, ..., a7 which are arguments)
 pub fn opt_remove_unread(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut read: @immut/hashset.T[Reg] = @immut/hashset.T::new();
 
@@ -171,7 +171,7 @@ fn atoi(arr: String) -> Option[Int] {
     return None;
 }
 
-// Looks at 2 consecutive instructions and sees if there is a better way to rewrite.
+/// Looks at 2 consecutive instructions and sees if there is a better way to rewrite.
 pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     let mut i = 0;
@@ -332,7 +332,7 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
     return result;
 }
 
-// Remove instructions that have no effect.
+/// Remove instructions that have no effect.
 pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut i = 0;
     let result = [];
@@ -458,7 +458,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
 }
 
 fn identify_loop(body: Array[RvAsm]) -> Option[(Int, Int)] {
-        // Begin of a loop (at the label)
+    // Begin of a loop (at the label)
     let mut begin = 0;
     while (begin < body.length()) {
         match body[begin] {

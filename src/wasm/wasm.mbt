@@ -111,7 +111,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             DirectOutput("(i32.const \{a})");
         Double(a) =>
             DirectOutput("(i32.const \{a.to_float().reinterpret_as_int()})")
-        Var(a) | FVar(a) =>
+        Var(a) | PackClosure(a) =>
             // This is a global variable
             var(a)
         Let(a, val, w) => {
@@ -254,7 +254,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             Var(r);
         }
         // No tail call optimization since we cannot easily jump
-        Call(name, args) | CallTailRec(name, args) => {
+        Call(name, args) | CallTailRec(name, args) | CallClosure(name, args) => {
             let mem = e.fake();
 
             // Load the closure
@@ -311,7 +311,6 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             asm.push(DirectOutput("(i32.store offset=0 (i32.add \{var(x)} (i32.mul (i32.const 4) \{var(i)})) \{Var(val)})"));
             DirectOutput("(i32.const 0)");
         }
-        ExternalArray(_) => @util.die("External array not supported")
         Unit => DirectOutput("(i32.const 0)")
     }
 }

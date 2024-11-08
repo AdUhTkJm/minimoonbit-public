@@ -81,7 +81,6 @@ fn globals(e: @types.Syntax) -> NameSet {
     match e {
         Let(a, _, c) => union_names(NameSet::from_array([a]), globals(c))
         LetRec({ name: f_name, .. }, w) => union_names(NameSet::from_array([f_name]), globals(w))
-        LetTuple(arr, _, w) => union_names(NameSet::from_array(arr), globals(w))
         _ => NameSet::new();
     }
 }
@@ -190,7 +189,8 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
 
             // Insert a fake global variable to call init()
             if (is_init) {
-                LetRec(fdef, Let(self.new_temp(Unit),
+                let dummy = self.new_temp(Unit);
+                LetRec(fdef, Let(dummy,
                 Apply(self.get(f_name), []), self.to_knf(w)));
             } else {
                 LetRec(fdef,
