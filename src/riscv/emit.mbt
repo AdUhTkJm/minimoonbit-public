@@ -816,7 +816,8 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     for i = 0; i < asm.length(); i = i + 1 {
     
-    match asm[i] { Mv(a, b) => {
+    match asm[i] {
+    Mv(a, b) => {
         // If "a" is global, then this is initialization of a global variable
         if (is_fake(a) && @closure.glob.val.contains(real(a))) {
             if (is_fake(b)) {
@@ -925,9 +926,70 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
         result.push(asm[i]);
 
     }
-        // Match ...
-        _ => result.push(asm[i])
+
+    Sd(a, mem) => {
+        // If "a" is global, then we need to store into it in a good way
+        if (is_fake(a) && @closure.glob.val.contains(real(a))) {
+           let f_name = real(a);
+
+            // Discard this for a Unit
+            if (type_of(f_name) == Unit) {
+                continue;
+            }
+
+            // If b is a function, we need to make it a closure
+            if (find_func(f_name).is_empty().not()) {
+                let target = fake(type_of(f_name));
+
+                result.append(make_closure(f_name, target));
+                result.push(Sd(target, mem));
+                continue;
+            }
+            
+            // global variable
+            if (@closure.glob.val.contains(f_name)) {
+                // We need to reform it as "*mem = *b"
+                let temp = fake(Ptr);
+                let val = fake(type_of(f_name));
+                result.push(La(temp, f_name.to_string()));
+                result.push(Ld(val, { base: temp, offset: 0 }));
+                result.push(Sd(val, mem));
+                continue;
+            }
         }
+        
+        result.push(asm[i]);
+    }
+
+    Ld(a, mem) => {
+        // If "a" is global, then we need to load from it in a good way
+        if (is_fake(a) && @closure.glob.val.contains(real(a))) {
+           let f_name = real(a);
+
+            // Discard this for a Unit
+            if (type_of(f_name) == Unit) {
+                continue;
+            }
+            
+            // When we load, all closures are packed up
+            // so no need to do it specially
+            if (@closure.glob.val.contains(f_name)) {
+                // We need to reform it as "*mem = *b"
+                let temp = fake(Ptr);
+                let val = fake(type_of(f_name));
+                result.push(La(temp, f_name.to_string()));
+                result.push(Ld(val, mem));
+                result.push(Sd(val, { base: temp, offset: 0 }));
+                continue;
+            }
+        }
+        
+        result.push(asm[i]);
+    }
+
+    // Match otherwise
+    _ => result.push(asm[i])
+    }
     }
 
     return result |> tidy_fp;
@@ -997,6 +1059,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     if (externs.contains(fun.name._)) {
         return AssemblyFunction :: { name: "", is_extern: true, body: [] };
     }
+    println(fun.body);
 
     asm.clear();
     t_clear();

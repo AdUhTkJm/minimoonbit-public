@@ -28,6 +28,7 @@ let with_effect: (Int) -> Int = {
     g
 };
 
+// Ans: 120130151
 fn init {
     let _ = print_int(with_effect(10));
     print_int(with_effect(31))

@@ -4,7 +4,7 @@ fn defake(reg: Reg) -> Reg {
             Some(w) => w
             None => {
                 if (type_of(name) != Unit) {
-                    println("emit: cannot find \{reg}")
+                    @util.die("emit: cannot find \{reg}")
                 }
                 Zero
             }
@@ -291,8 +291,27 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Add(a, b, c), Mv(d, e)) => {
+                // add a, b, c; mv d, a => add d, b, c; mv a, d
+                // Perhaps makes more optimization usable
+                if (a == e) {
+                    result.push(Add(d, b, c));
+                    result.push(Mv(a, d));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Sub(a, b, c), Mv(d, e)) => {
+                // same goes for sub
+                if (a == e) {
+                    result.push(Sub(d, b, c));
+                    result.push(Mv(a, d));
+                    i += 2;
+                    continue;
+                }
+            }
             (Xori(a, b, 1), Xori(c, d, 1)) => {
-                // xori a, a, 1; xori a, a, 1 => ()
+                // xori a, a, 1; xori a, a, 1 => nop
                 if (a == b && a == c && a == d) {
                     i += 2;
                     continue;
