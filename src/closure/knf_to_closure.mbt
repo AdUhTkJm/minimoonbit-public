@@ -212,8 +212,15 @@ fn amend(expr: Expr) -> Expr {
 pub fn initial(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
     globvar.val = global_vars(prog);
-    let body = convert(prog);
-    t.prog.body = body;
+
+    // In case the first round does not capture everything
+    // see capture.mbt
+    let _ = convert(prog);
+    for i = 0; i < 3; i = i + 1 {
+        let body = convert(prog);
+        t.prog.body = body;
+        t.prog.fundefs = [..t.prog.fundefs[t.prog.fundefs.length() / 2:]];
+    }
 
     return t.prog;
 }

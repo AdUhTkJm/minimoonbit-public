@@ -32,7 +32,7 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
 
     fn store_write(key: Option[Reg], v: Int) -> Unit {
-        if (key.is_empty() || reg_arg_list.contains(key.unwrap())) {
+        if (key.is_empty() || arg_list.contains(key.unwrap())) {
             return;
         }
 
@@ -697,7 +697,7 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let mut next = 0;
     let mut nextf = 0;
-    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S9, S10, S11, Fs10, Fs11];
+    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S10, S11, Fs10, Fs11];
 
     fn record(r) {
         match r {

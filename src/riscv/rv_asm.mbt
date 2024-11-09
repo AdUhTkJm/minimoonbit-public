@@ -102,8 +102,8 @@ let where: Where = { x: 0, fx: 0 };
 
 fn which() -> Reg {
     match where.x {
-        0 => S9
-        1 => S10
+        0 => S10
+        1 => S11
         x => @util.die("emit: bad which(): \{x}")
     }
 }
