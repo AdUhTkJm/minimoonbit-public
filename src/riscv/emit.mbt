@@ -763,7 +763,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
                 f_allowed.push(x);
             }
         }
-        println(allowed);
     }
 
     basic_regalloc(pseudobody, allowed, f_allowed);
@@ -772,8 +771,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
     t_clear();
     basic_regalloc(body, allowed, f_allowed);
-    for x in body { println(x) };
-    println("\n\n")
 
     // Do optimizations
     let mut opt = body
@@ -787,6 +784,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             |> opt_remove_write
             |> opt_remove_unread
             |> opt_inline_loopvar
+            |> opt_squeeze_loop
     }
 
     opt = opt

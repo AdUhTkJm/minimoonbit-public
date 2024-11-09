@@ -30,9 +30,14 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let last_written: Map[Reg, Int] = Map::new();
     let mut used_labels: @immut/hashset.T[Label] = @immut/hashset.T::new();
     let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
+    let ignore_list = if (has_call(body)) {
+        arg_list
+    } else {
+        [A0, Fa0]
+    };
 
     fn store_write(key: Option[Reg], v: Int) -> Unit {
-        if (key.is_empty() || arg_list.contains(key.unwrap())) {
+        if (key.is_empty() || ignore_list.contains(key.unwrap())) {
             return;
         }
 
@@ -81,7 +86,7 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
                 used_labels = used_labels.add(label);
             }
             Call(_) | Jalr(_) => {
-                for x in [..reg_arg_list, ..freg_arg_list] {
+                for x in arg_list {
                     store_read(Some(x), i);
                 }
                 store_write(Some(A0), i);
@@ -140,13 +145,18 @@ pub fn opt_remove_unread(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     let opt = [];
-    let arg_list = [..reg_arg_list, ..freg_arg_list];
+    let ignore_list = if (has_call(body)) {
+        arg_list
+    } else {
+        [A0, Fa0]
+    };
+
     for i = 0; i < body.length(); i = i + 1 {
         let used = reg_used(body[i]);
 
         if (used.rd.is_empty().not()) {
             let rd = used.rd.unwrap();
-            if (read.contains(rd).not() && arg_list.contains(rd).not()) {
+            if (read.contains(rd).not() && ignore_list.contains(rd).not()) {
                 continue;
             }
         }
@@ -306,6 +316,15 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                 if (a == e) {
                     result.push(Sub(d, b, c));
                     result.push(Mv(a, d));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Ld(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Ld(b, mem));
+                    result.push(Mv(a, b));
                     i += 2;
                     continue;
                 }
@@ -499,11 +518,11 @@ fn identify_loop(body: Array[RvAsm]) -> Option[(Int, Int)] {
 }
 
 
-// If something is irrelevant with the loop variable
-// then put these things outside the loop
+/// If something is irrelevant with the loop variable
+/// then put these things outside the loop
 
-// Note: this function expects unconsolidated assembly
-// (more like a 3-address IR)
+/// Note: this function expects unconsolidated assembly
+/// (more like a 3-address IR)
 pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
     let range = identify_loop(body);
     if (range == None) {
@@ -534,11 +553,18 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
 
     i = begin + 1;
 
+    // Instructions involved in the loop
     let involved = [];
+    // Instructions independent of the loop
     let uninvolved = [];
     let reg_preserve = [];
-    let inv_regs: @immut/hashset.T[Reg] =
-        @immut/hashset.T::from_array(fun.args.map(fn (x) { Fake(x) }) + reg_arg_list);
+    let args = fun.args.map(fn (x) { Fake(x) });
+    let inv_regs: @immut/hashset.T[Reg] = @immut/hashset.T::from_array(
+        if (has_call(body)) {
+            args + arg_list
+        } else {
+            args + [A0, Fa0]
+        });
 
     let values: Map[String, Reg] = { "0": Zero };
     let map: Map[Reg, Reg] = {};
@@ -552,7 +578,7 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
 
     while (i < end) {
         match body[i] {
-            // In opt_realloc we test for these
+            // In opt_inline_loopvar we test for these
             // so when you add something here, must update another
             La(a, Label(x)) | Li(a, x) => {
                 fn rename(r) {
@@ -742,7 +768,6 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
         record(used.rs1);
         record(used.rs2);
     }
-    println(rename)
 
     fn realloc(r) {
         match rename[r] {
@@ -752,6 +777,42 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     return body.map(fn (x) { register_rename(x, realloc, realloc) });
+}
+
+
+/// Tries to delete instructions in a loop that can't be deleted
+/// by opt_remove_unread or opt_remove_write
+pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
+    let range = identify_loop(body);
+    if (range.is_empty()) {
+        return body;
+    }
+
+    let (_begin, _end) = range.unwrap();
+    // Remove the label and the J instruction
+    let (begin, end) = (_begin + 1, _end);
+    let middle = [..body[begin: end]];
+    
+    // Copy a loop body
+    let dup = [
+        ..middle,
+        Comment("separate"),
+        ..middle,
+    ]
+    
+    let opt = dup |> opt_remove_write;
+
+    // Retrieve body
+    let middle_opt = [];
+    for x in opt {
+        match x {
+            Comment(_) => break;
+            x => middle_opt.push(x);
+        }
+    }
+
+    let result = [..body[:begin], ..middle_opt, ..body[end:]];
+    return result;
 }
 
 
