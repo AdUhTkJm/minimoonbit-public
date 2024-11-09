@@ -75,7 +75,7 @@ pub fn ClosureInterpreter::eval(
         Unit => Unit
         Int(i) => Int(i)
         Double(d) => Double(d)
-        Var(v) => self.find!(v)
+        Var(v) | PackClosure(v) => self.find!(v)
         Neg(x) => {
             let x = self.find!(x)
             match x {
@@ -231,7 +231,7 @@ pub fn ClosureInterpreter::eval(
             let ext_fn = self.extern_fns.get(l._).or_error!(Failure("function \{l} is not external"));
             ext_fn(args)
         }
-        Call(n, xs) | CallTailRec(n, xs) => {
+        Call(n, xs) | CallTailRec(n, xs) | CallClosure(n, xs) => {
             let args = [];
             for x in xs {
                 args.push(self.find!(x));

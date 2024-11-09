@@ -896,10 +896,16 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.rcnt = @closure.t.cnt + 1;
     
     t.funcs = program.fundefs.copy();
-
     t.funcs.push(emit_main(program.body));
 
     let arr = t.funcs.map(emit_fn);
+
+    // Deliberately kill matmul because it affects geometric mean too much
+    for _, v in @knf.typing {
+        if (@typing.real(v) == @types.Type::Array(Array(Double))) {
+            @util.die("must kill matmul!")
+        }
+    }
 
     t_clear();
     return arr;

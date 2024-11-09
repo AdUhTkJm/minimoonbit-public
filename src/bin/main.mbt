@@ -109,7 +109,7 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             }
         }
         Closure => {
-            if (wasm.val) {
+            if (wasm.val || closure_interpreter.val) {
                 self.closure_ir = Some(@closure.initial(self.opt_knf.unwrap()));
             } else {
                 self.closure_ir = Some(@closure.closure(self.opt_knf.unwrap()))
@@ -159,6 +159,7 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
 
 let js: Ref[Bool] = Ref::new(false);
 let wasm: Ref[Bool] = Ref::new(false);
+let closure_interpreter: Ref[Bool] = Ref::new(false);
 
 fn main {
     let argv = @env.get_args()
@@ -171,7 +172,6 @@ fn main {
     let start_stage = Ref::new(Stages::Parse)
     let end_stage = Ref::new(Stages::Finished)
     let knf_interpreter = Ref::new(false)
-    let closure_interpreter = Ref::new(false)
     let out_file = Ref::new("-")
     let print = Ref::new([])
 
@@ -213,7 +213,7 @@ fn main {
             (
                 "--closure-interpreter",
                 "",
-                @ArgParser.Set(closure_interpreter),
+                @ArgParser.Set(knf_interpreter),
                 "Run with closure interpreter",
             ),
             (

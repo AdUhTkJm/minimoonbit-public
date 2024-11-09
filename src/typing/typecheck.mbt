@@ -315,5 +315,6 @@ pub fn typecheck(ast: @types.Syntax) -> @types.Syntax {
     let d = deconflict(ast, @immut/hashmap.T::new().add("main", "main"));
 
     unify(infer(d, @immut/hashmap.T::new(), ~global = true), Unit);
+
     return typed(d);
 }
