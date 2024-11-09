@@ -200,7 +200,6 @@ fn opt_cse_(expr: Expr) -> Expr {
                         if (e.subexpr.contains(val).not()) {
                             e.subexpr[val] = a;
                         } else {
-                            println("spot: \{val} <= \{e.subexpr[val].unwrap()}")
                             e.alias[a] = e.subexpr[val].unwrap();
                         }
                     }
@@ -212,28 +211,59 @@ fn opt_cse_(expr: Expr) -> Expr {
         }
         LetTuple(x, arr, w) =>
             LetTuple(x, arr, opt_cse_(w))
-        // Need some careful handling of if-else though
-        // not sure
+        IfEq(a, b, body, otherwise) => {
+            // We can't cross boundary of branches
+            let s = e.subexpr;
+            let al = e.alias;
+            let left = opt_cse_one(body);
+            e.subexpr = s;
+            e.alias = al;
+
+            let s = e.subexpr;
+            let al = e.alias;
+            let right = opt_cse_one(otherwise);
+            e.subexpr = s;
+            e.alias = al;
+            IfEq(a, b, left, right);
+        }
+        IfLe(a, b, body, otherwise) => {
+            let s = e.subexpr;
+            let al = e.alias;
+            let left = opt_cse_one(body);
+            e.subexpr = s;
+            e.alias = al;
+
+            let s = e.subexpr;
+            let al = e.alias;
+            let right = opt_cse_one(otherwise);
+            e.subexpr = s;
+            e.alias = al;
+            IfLe(a, b, left, right);
+        }
         t => t
     }
 }
 
-/// Common subexpression elimination
-pub fn opt_cse(program: Program) -> Program {
+fn opt_cse_one(expr: Expr) -> Expr {
     fn do_alias(x) {
         match e.alias[x] {
             Some(t) => t
             None => x
         }
     }
-    for x in program.fundefs {
-        e.subexpr.clear();
-        e.alias.clear();
 
-        prepare_alias(x.body);
-        x.body = rename(x.body, do_alias);
-        x.body = rename(opt_cse_(x.body), do_alias);
+    e.subexpr.clear();
+    e.alias.clear();
+
+    prepare_alias(expr);
+    let renamed = rename(expr, do_alias);
+    return rename(opt_cse_(renamed), do_alias);
+}
+
+/// Common subexpression elimination
+pub fn opt_cse(program: Program) -> Program {
+    for x in program.fundefs {
+        x.body = opt_cse_one(x.body);
     }
-    println(program.body)
     return program;
 }

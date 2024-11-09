@@ -685,6 +685,11 @@ pub fn emit_global(logger: Logger) -> Unit {
         if (find_func(x).is_empty().not()) {
             continue;
         }
+
+        // These are temporary things that we'd never use
+        if (x.name.is_empty()) {
+            continue;
+        }
         
         logger.write_string("\{x.to_string()}:\n    .dword 0\n");
     }

@@ -431,7 +431,11 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         match body[i] {
             Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); imms.remove(a); }
 
-            Label(_) | J(_) => { ref.clear(); label.clear(); imms.clear(); }
+            J(_) | Label(_) => {
+                ref.clear();
+                label.clear();
+                imms.clear();
+            }
 
             Call(_) | Jalr(_) => {
                 let copy = Map::from_iter(ref.iter());
@@ -746,7 +750,19 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
 /// Make all fake registers real
 pub fn consolidate(body: Array[RvAsm]) -> Array[RvAsm] {
+    fn is_unit(r) {
+        match r {
+            Some(rg) => is_fake(rg) && type_of(real(rg)) == Unit
+            None => false
+        }
+    }
+
     return body.map(fn (asm) {
-        register_rename(asm, defake, defake);
+        let used = reg_used(asm);
+        if (is_unit(used.rd) || is_unit(used.rs1) || is_unit(used.rs2)) {
+            Nop
+        } else {
+            register_rename(asm, defake, defake);
+        }
     });
 }
