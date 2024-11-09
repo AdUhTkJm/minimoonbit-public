@@ -1,4 +1,4 @@
-pub type Label String derive(Show)
+pub type Label String derive(Show, Eq, Hash)
 
 pub typealias Name = @types.Name
 
@@ -34,7 +34,18 @@ pub enum Expr {
     ArrayPut(Name, Name, Name)
     PackClosure(Name)
     CallClosure(Name, Array[Name])
-} derive(Show)
+    Deref(Name)
+    Save(Name, Name)
+    LShift(Name, Int)
+} derive(Show, Eq)
+
+pub fn Expr::hash(self: Expr) -> Int {
+    return Hash::hash(self.to_string());
+}
+
+pub fn Expr::hash_combine(self: Expr, hasher: Hasher) -> Unit {
+    return Hash::hash_combine(self.to_string(), hasher);
+}
 
 pub struct Closure {
     name : Label

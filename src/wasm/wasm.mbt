@@ -312,6 +312,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             DirectOutput("(i32.const 0)");
         }
         Unit => DirectOutput("(i32.const 0)")
+        _ => @util.die("wasm: cannot identify: \{expr}")
     }
 }
 

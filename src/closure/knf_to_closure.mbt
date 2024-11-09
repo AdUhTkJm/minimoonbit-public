@@ -168,8 +168,19 @@ fn find_function(x: Name) -> Option[FuncDef] {
     }
 }
 
+fn fake(ty: Type) -> Name {
+    let name = Name::slot_only(t.cnt);
+    @knf.typing[name] = ty;
+    t.cnt += 1;
+    name
+}
+
 
 /// Annotates closure operation to facilitate RISC-V stage
+/// Also transforms array operations into dereference
+/// 
+/// The reason it is a separate function (not integrated into convert)
+/// is that otherwise it will destroy the WASM backend
 fn amend(expr: Expr) -> Expr {
     match expr {
         Var(f) => {
@@ -178,6 +189,22 @@ fn amend(expr: Expr) -> Expr {
             } else {
                 Var(f)
             }
+        }
+        ArrayGet(x, i) => {
+            let offset = fake(Int);
+            let addr = fake(@knf.typing[x].unwrap());
+
+            Let(addr,
+            Let(offset, LShift(i, 3), Add(x, offset)),
+            Deref(addr));
+        }
+        ArrayPut(x, i, val) => {
+            let offset = fake(Int);
+            let addr = fake(@knf.typing[x].unwrap());
+
+            Let(addr,
+            Let(offset, LShift(i, 3), Add(x, offset)),
+            Save(addr, val));
         }
         IfLe(a, b, body, otherwise) =>
             IfLe(a, b, amend(body), amend(otherwise))
@@ -229,15 +256,14 @@ pub fn closure(prog: @knf.Knf) -> Program {
     t.prog = initial(prog);
 
     for x in t.prog.fundefs {
-        // This is to tackle with the situation where
-        // x returns a function;
-        // in which case, without let, no PackClosure will be present
         x.body = amend(x.body);
     }
 
     t.prog.body = amend(t.prog.body);
     
     let opt = t.prog
+        |> opt_remove_unused
+        |> opt_cse
         |> opt_remove_unused;
 
     return opt;

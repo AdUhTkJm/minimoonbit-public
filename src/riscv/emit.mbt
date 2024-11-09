@@ -39,7 +39,7 @@ fn T::new() -> T {
         last_used: Map::new(),
         regs: Map::new(),
         occupy: Map::new(),
-        rcnt: @closure.t.cnt + 1,
+        rcnt: 0,
         labelcount: 0,
         funcs: [],
     }
@@ -248,6 +248,11 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Div(r, Fake(a), Fake(b)));
             r;
         }
+        LShift(a, i) => {
+            let r = fake(Int);
+            asm.push(Slli(r, Fake(a), i));
+            r;
+        }
         Mul(a, b) => {
             let r = fake(Int);
             asm.push(Mul(r, Fake(a), Fake(b)));
@@ -308,38 +313,31 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Xori(r, r, 1));
             r;
         }
-        ArrayGet(x, i) => {
+        Deref(x) => {
             let ty = match type_of(x) {
                 Array(w) => w
-                _ => @util.die("emit: array get in non-array (\{x}: \{type_of(x)})");
+                _ => @util.die("emit: deref non-array \{x}: \{type_of(x)}");
             }
-            let r = fake(Ptr);
-            // r = *(x + (i << 3));
-            asm.push(Slli(r, Fake(i), 3));
-            asm.push(Add(r, r, Fake(x)));
 
             let result = fake(ty);
 
             if (ty == Double) {
-                asm.push(Fld(result, { base: r, offset: 0 }));
+                asm.push(Fld(result, { base: Fake(x), offset: 0 }));
             } else {
-                asm.push(Ld(result, { base: r, offset: 0 }));
+                asm.push(Ld(result, { base: Fake(x), offset: 0 }));
             }
             result
         }
-        ArrayPut(x, i, val) => {
-            let addr = fake(Int);
-            // *(x + (i << 3)) = val;
-            asm.push(Slli(addr, Fake(i), 3));
-            asm.push(Add(addr, addr, Fake(x)));
-
+        Save(x, val) => {
             if (type_of(val) == Double) {
-                asm.push(Fsd(Fake(val), { base: addr, offset: 0 }));
+                asm.push(Fsd(Fake(val), { base: Fake(x), offset: 0 }));
             } else {
-                asm.push(Sd(Fake(val), { base: addr, offset: 0 }));
+                asm.push(Sd(Fake(val), { base: Fake(x), offset: 0 }));
             }
             fake(Unit);
         }
+        ArrayGet(_) | ArrayPut(_) => 
+            @util.die("emit: array operations should have been translated")
         MakeTuple(arr) => {
             let r = fake(Tuple(arr.map(type_of)));
 
@@ -881,6 +879,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 }
 
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
+    t.rcnt = @closure.t.cnt + 1;
+    
     t.funcs = program.fundefs.copy();
 
     t.funcs.push(emit_main(program.body));
