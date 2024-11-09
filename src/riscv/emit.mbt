@@ -57,25 +57,8 @@ fn t_clear() -> Unit {
 pub let t: T = T::new();
 
 
-fn reg(r: @types.Name, has_call: Bool) -> Unit {
-    let mut list = [];
-
-    // If no calling other functions, prefer temp variables
-    if (type_of(r) == Double) {
-        if (has_call) {
-            list = freg_allocatable_list;
-        } else {
-            list = freg_allocatable_list_biased;
-        }
-    } else {
-        if (has_call) {
-            list = reg_allocatable_list;
-        } else {
-            list = reg_allocatable_list_biased;
-        }
-    }
-
-    for z in list {
+fn reg(r: @types.Name, allowed: Array[Reg]) -> Unit {
+    for z in allowed {
         // z is used after this instruction, so can't reuse
         if (t.occupy.contains(z) && t.last_used[t.occupy[z].unwrap()] > t.first_used[r]) {
             continue;
@@ -158,10 +141,20 @@ fn type_of(name: @types.Name) -> @types.Type {
     }
 }
 
+fn has_call(asm: Array[RvAsm]) -> Bool {
+    for x in asm {
+        match x {
+            Call(_) | Jalr(_) => return true;
+            _ => ()
+        }
+    }
+    return false;
+}
+
 /// It just scans through.
 /// to deal with loops, special taken must be taken in PREVIOUS stages.
 /// Updates t.regs[] to store registers.
-fn basic_regalloc(asm: Array[RvAsm]) -> Unit {
+fn basic_regalloc(asm: Array[RvAsm], allowed: Array[Reg], f_allowed: Array[Reg]) -> Unit {
     let to_alloc: Array[@types.Name] = [];
 
     // Record all assigned registers
@@ -178,21 +171,13 @@ fn basic_regalloc(asm: Array[RvAsm]) -> Unit {
         store_last(used.rs2, i);
     }
 
-    let mut has_call = false;
-    for x in asm {
-        match x {
-            Call(_) | Jalr(_) => has_call = true;
-            _ => ()
-        }
-    }
-
     to_alloc.sort_by(fn (a, b) { t.first_used[a].unwrap() - t.first_used[b].unwrap(); });
 
     for r in to_alloc {
         if (@closure.glob.val.contains(r)) {
             continue;
         }
-        reg(r, has_call);
+        reg(r, if (type_of(r) == Double) { f_allowed } else { allowed });
     }
 }
 
@@ -757,12 +742,38 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         pseudobody.push(Mv(A0, Zero));
     }
 
-    basic_regalloc(pseudobody);
+    let mut allowed = [];
+    let mut f_allowed = [];
+
+    if (has_call(pseudobody)) {
+        allowed = reg_allocatable_list;
+        f_allowed = freg_allocatable_list;
+    } else if (fun.is_closure.not()) {
+        allowed = reg_allocatable_list_biased;
+        f_allowed = freg_allocatable_list_biased;
+    } else {
+        for x in reg_allocatable_list_biased {
+            // Otherwise this will break loading of environment
+            if (reg_arg_list[fun.args.length()] != x) {
+                allowed.push(x);
+            }
+        }
+        for x in freg_allocatable_list_biased {
+            if (freg_arg_list[fun.args.length()] != x) {
+                f_allowed.push(x);
+            }
+        }
+        println(allowed);
+    }
+
+    basic_regalloc(pseudobody, allowed, f_allowed);
 
     // Prologue and Epilogue is dealt with at output()
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
     t_clear();
-    basic_regalloc(body);
+    basic_regalloc(body, allowed, f_allowed);
+    for x in body { println(x) };
+    println("\n\n")
 
     // Do optimizations
     let mut opt = body

@@ -325,7 +325,7 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     // We haven't pushed this in the loop
-    if (body.length() > 0) {
+    if (body.length() > 0 && i == body.length() - 1) {
         result.push(body[body.length() - 1]);
     }
 
@@ -656,6 +656,17 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
                     }
                 }
             }
+            Mv(a, b) => {
+                if (invar.contains(b)) {
+                    let value = invar[b].unwrap()
+                    if (atoi(value).is_empty()) {
+                        middle.push(La(a, value));
+                    } else {
+                        middle.push(Li(a, value));
+                    }
+                    continue;
+                }
+            }
             Jalr(a) => {
                 if (invar.contains(a)) {
                     middle.push(J(invar[a].unwrap()));
@@ -680,28 +691,23 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let rename: Map[Reg, Reg] = {};
 
-    let mut has_call = false;
-    for x in body {
-        match x {
-            Call(_) | Jalr(_) => has_call = true;
-            _ => ()
-        }
-    }
+    let called = has_call(body);
 
-    let list = if (has_call) {
+    let list = if (called) {
         reg_allocatable_list
     } else {
-        reg_allocatable_list_biased
+        reg_temp_list + reg_saved_list
     };
-    let listf = if (has_call) {
+    let listf = if (called) {
         freg_allocatable_list
     } else {
-        freg_allocatable_list_biased
+        freg_temp_list + freg_saved_list
     };
 
     let mut next = 0;
     let mut nextf = 0;
     let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S10, S11, Fs10, Fs11];
+
 
     fn record(r) {
         match r {
@@ -736,6 +742,7 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
         record(used.rs1);
         record(used.rs2);
     }
+    println(rename)
 
     fn realloc(r) {
         match rename[r] {

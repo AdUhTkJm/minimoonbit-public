@@ -101,7 +101,7 @@ pub let reg_callee_saved_list: Array[Reg] = reg_saved_list
 
 pub let reg_allocatable_list: Array[Reg] = reg_saved_list + reg_temp_list
 
-pub let reg_allocatable_list_biased: Array[Reg] = reg_temp_list + reg_saved_list
+pub let reg_allocatable_list_biased: Array[Reg] = reg_arg_list + reg_temp_list + reg_saved_list
 
 pub let reg_all_list: Array[Reg] = reg_arg_list + reg_saved_list + reg_temp_list + [Ra, Zero, Sp, Gp, Tp, Fp];
 
@@ -219,7 +219,7 @@ pub let freg_callee_saved_list: Array[Reg] = freg_saved_list
 
 pub let freg_allocatable_list: Array[Reg] = freg_saved_list + freg_temp_list
 
-pub let freg_allocatable_list_biased: Array[Reg] = freg_temp_list + freg_saved_list
+pub let freg_allocatable_list_biased: Array[Reg] = freg_arg_list + freg_temp_list + freg_saved_list
 
 pub let freg_all_list: Array[Reg] = freg_temp_list + freg_arg_list + freg_saved_list
 
