@@ -146,9 +146,9 @@ pub fn opt_remove_unread(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let opt = [];
     let ignore_list = if (has_call(body)) {
-        arg_list
+        arg_list + [S9]
     } else {
-        [A0, Fa0]
+        [A0, Fa0, S9]
     };
 
     for i = 0; i < body.length(); i = i + 1 {
@@ -740,7 +740,7 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let mut next = 0;
     let mut nextf = 0;
-    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S10, S11, Fs10, Fs11];
+    let no_rename = arg_list + [Ra, Sp, Fp, Tp, Gp, Zero, S9, S10, S11, Fs10, Fs11];
 
 
     fn record(r) {

@@ -33,6 +33,12 @@ struct T {
 
     // A list of external arrays
     mut externals: Map[@closure.Expr, @types.Name]
+
+    // If any memory allocation appeared
+    mut mallocked: Bool
+
+    // If the entry point is directly on main()
+    mut merged: Bool
 }
 
 fn T::new() -> T {
@@ -46,6 +52,8 @@ fn T::new() -> T {
         labelcount: 0,
         funcs: [],
         externals: Map::new(),
+        mallocked: false,
+        merged: false,
     }
 }
 
@@ -359,23 +367,24 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             // Allocate an array for the tuple
             let size = arr.fold(~init = 0, fn (total, x) { total + sizeof(x) });
-            asm.push(Li(A0, size.to_string()));
-            asm.push(Call("minimbt_malloc"));
 
             let mut offset = 0;
 
             // Put everything into the array
             for x in arr {
                 match typeof(x) {
-                    Double => asm.push(Fsd(Fake(x), { base: A0, offset: offset }));
-                    Int => asm.push(Sw(Fake(x), { base: A0, offset: offset }));
-                    _ => asm.push(Sd(Fake(x), { base: A0, offset: offset }));
+                    Double => asm.push(Fsd(Fake(x), { base: S9, offset: offset }));
+                    Int => asm.push(Sw(Fake(x), { base: S9, offset: offset }));
+                    _ => asm.push(Sd(Fake(x), { base: S9, offset: offset }));
                 }
                 offset += sizeof(x);
             }
 
             // Record the array address
-            asm.push(Mv(r, A0));
+            asm.push(Mv(r, S9));
+            asm.push(Addi(S9, S9, size));
+            t.mallocked = true;
+
             r;
         }
         IfEq(a, b, body, otherwise) => {
@@ -548,21 +557,22 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 let capsize = ff.captured.fold(~init = 0, fn (total, x) { total + sizeof(x) });
 
                 asm.push(La(r, name_fn(f)));
-                asm.push(Li(A0, (8 + capsize).to_string()));
-                asm.push(Call("minimbt_malloc"));
-                asm.push(Sd(r, { base: A0, offset: 0 }));
+                asm.push(Sd(r, { base: S9, offset: 0 }));
 
                 let mut offset = 8;
                 for x in ff.captured {
                     match typeof(x) {
-                        Double => asm.push(Fsd(amap[x].unwrap(), { base: A0, offset: offset }));
-                        Int => asm.push(Sw(amap[x].unwrap(), { base: A0, offset: offset }));
-                        _ => asm.push(Sd(amap[x].unwrap(), { base: A0, offset: offset }));
+                        Double => asm.push(Fsd(amap[x].unwrap(), { base: S9, offset: offset }));
+                        Int => asm.push(Sw(amap[x].unwrap(), { base: S9, offset: offset }));
+                        _ => asm.push(Sd(amap[x].unwrap(), { base: S9, offset: offset }));
                     }
                     offset += sizeof(x);
                 }
 
-                asm.push(Mv(result, A0));
+                asm.push(Mv(result, S9));
+                asm.push(Addi(S9, S9,(8 + capsize)));
+                t.mallocked = true;
+
                 return result;
             }
             pack(f)
@@ -814,7 +824,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         _ => A0
     }
 
+    let reserve = [];
+    if (fun.name._ == "minimbt_main" && t.mallocked) {
+        reserve.push(La(S9, "__reserved"));
+    }
+
     let pseudobody = [
+        ..reserve,
         ..load_arg,
         RvAsm::Label("\{fun.old_name}_tailrec"),
         ..asm,
@@ -822,13 +838,9 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     ];
 
     if (fun.name._ == "minimbt_main") {
-        // call main()
-        if (t.funcs.filter(fn (x) { x.old_name.name == Some("main") }).length() > 0) {
+        if (t.merged.not() && t.funcs.filter(fn (x) { x.old_name.name == Some("main") }).length() > 0) {
             pseudobody.push(Call("main"));
         }
-
-        // return 0;
-        pseudobody.push(Mv(A0, Zero));
     }
 
     let mut allowed = [];
@@ -885,7 +897,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let pre: Array[RvAsm] = [];
     let post: Array[RvAsm] = [];
 
-    let mut all_used = @immut/hashset.from_array([Ra]);
+    let called = has_call(opt);
+    let mut all_used = @immut/hashset.from_array(if (called) { [Ra] } else { [] });
     for x in opt {
         let file = reg_used(x);
         if (file.rd.is_empty().not()) {
@@ -1000,24 +1013,29 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     // (We will always have one extra unused global variable)
     if (@closure.globvar.val.size() != 1) {
         t.funcs.push(emit_main(program.body));
-    }
-
-    let arr = t.funcs.map(emit_fn);
-
-    // No global variables:
-    // just directly use main as entry
-    if (@closure.globvar.val.size() == 1) {
-        for x in arr {
-            if (x.name == "main") {
-                x.name = "minimbt_main";
+    } else {
+        t.merged = true;
+        // No global variables:
+        // just directly use main as entry
+        if (@closure.globvar.val.size() == 1) {
+            for x in t.funcs {
+                if (x.name == "main") {
+                    x.name = "minimbt_main";
+                }
             }
         }
     }
 
-    kill_matmul();
+    let arr = t.funcs.map(emit_fn);
+
+    // kill_matmul();
 
     t_clear();
     return arr;
+}
+
+pub fn emit_bss(logger: Logger) -> Unit {
+    logger.write_string("\n\n.section .bss\n__reserved:\n    .space 1073741824");
 }
 
 

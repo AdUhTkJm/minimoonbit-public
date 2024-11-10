@@ -8,6 +8,7 @@ pub fn print_functions(asm : Array[AssemblyFunction]) -> String {
 
     emit_global(logger);
     emit_externals(logger);
+    emit_bss(logger);
     
     return logger.to_string();
 }
