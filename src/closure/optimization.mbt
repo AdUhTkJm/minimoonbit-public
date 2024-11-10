@@ -1,16 +1,22 @@
 pub struct OptEnv {
     // All names used in the program
-    mut used_names: @immut/hashset.T[@types.Name]
+    mut used_names: @immut/hashset.T[Name]
 
+    // Subexpressions that might be eliminable
     mut subexpr: Map[Expr, Name]
 
+    // Two names refer to the same thing
     mut alias: Map[Name, Name]
+
+    // All transformed (un-closured) functions
+    mut transformed: @immut/hashset.T[Name]
 }
 
 let e: OptEnv = OptEnv :: {
     used_names: @immut/hashset.T::new(),
     subexpr: Map::new(),
     alias: Map::new(),
+    transformed: @immut/hashset.T::new(),
 }
 
 fn OptEnv::add_used(self: OptEnv, arr: Array[Name]) -> Unit {
@@ -162,6 +168,8 @@ fn rename(expr: Expr, f: (Name) -> Name) -> Expr {
     }
 }
 
+
+// This is for opt_cse
 fn prepare_alias(expr: Expr) -> Unit {
     match expr {
         Let(a, val, w) => {
@@ -184,6 +192,30 @@ fn prepare_alias(expr: Expr) -> Unit {
         IfEq(_, _, body, otherwise) => {
             prepare_alias(body);
             prepare_alias(otherwise);
+        }
+        _ => ()
+    }
+}
+
+// This is for opt_remove_closure
+fn prepare_closure_alias(expr: Expr) -> Unit {
+    match expr {
+        Let(a, val, w) => {
+            match val {
+                PackClosure(x) => 
+                    e.alias[a] = x;
+                
+                _ => ()
+            }
+            prepare_closure_alias(val);
+            prepare_closure_alias(w);
+        }
+        LetTuple(_, _, w) =>
+            prepare_closure_alias(w)
+        IfLe(_, _, body, otherwise) |
+        IfEq(_, _, body, otherwise) => {
+            prepare_closure_alias(body);
+            prepare_closure_alias(otherwise);
         }
         _ => ()
     }
@@ -265,5 +297,155 @@ pub fn opt_cse(program: Program) -> Program {
     for x in program.fundefs {
         x.body = opt_cse_one(x.body);
     }
+    return program;
+}
+
+fn type_of(x: Name) -> @types.Type {
+    match @knf.typing[x] {
+        Some(t) => t
+        None => @util.die("closure: cannot identify type: \{x}")
+    }
+}
+
+fn reform(expr: Expr) -> Expr {
+    fn transformed(x) {
+        if (e.transformed.contains(x)) {
+            return true;
+        }
+        if (e.alias.contains(x)) {
+            return e.transformed.contains(e.alias[x].unwrap());
+        }
+        return false;
+    }
+
+    fn captured(x) {
+        if (e.transformed.contains(x)) {
+            return find_function(x).unwrap().captured;
+        }
+        if (e.alias.contains(x)) {
+            return find_function(e.alias[x].unwrap()).unwrap().captured;
+        }
+        @util.die("opt-closure: closure removal corrupted");
+    }
+
+    fn real(x) {
+        if (e.transformed.contains(x)) {
+            return x;
+        }
+        if (e.alias.contains(x)) {
+            return find_function(e.alias[x].unwrap()).unwrap().old_name;
+        }
+        @util.die("opt-closure: closure removal corrupted");
+    }
+
+    match expr {
+        Let(a, val, w) => 
+            Let(a, reform(val), reform(w))
+        LetTuple(x, arr, w) =>
+            LetTuple(x, arr, reform(w))
+        IfLe(a, b, body, otherwise) =>
+            IfLe(a, b, reform(body), reform(otherwise))
+        IfEq(a, b, body, otherwise) =>
+            IfEq(a, b, reform(body), reform(otherwise))
+        Call(f, args) => {
+            if (transformed(f)) {
+                Call(real(f), args + captured(f));
+            } else {
+                Call(f, args)
+            }
+        }
+        CallTailRec(f, args) => {
+            if (transformed(f)) {
+                CallTailRec(real(f), args + captured(f));
+            } else {
+                CallTailRec(f, args)
+            }
+        }
+        CallClosure(f, args) => {
+            if (transformed(f)) {
+                Call(real(f), args + captured(f));
+            } else {
+                CallClosure(f, args)
+            }
+        }
+        t => t
+    }
+}
+
+fn check_noflee(expr: Expr) -> Bool {
+    match expr {
+        Let(a, val, w) =>
+            check_noflee(val) && check_noflee(w) && match @knf.typing[a] {
+                Some(Fun(_)) => false
+                Some(Array(Fun(_))) => false
+                Some(Array(Array(Fun(_)))) => false
+                // Indeed all arrays of functions are not good, but I'm lazy to reform into recursion
+                _ => true
+            }
+        LetTuple(arr, _, w) =>
+            arr.fold(~init = true, fn (total, x) { total && is_function(x).not() }) && check_noflee(w)
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
+            check_noflee(body) && check_noflee(otherwise)
+        _ => true
+    }
+}
+
+fn check_eligibility(x: FuncDef) -> Bool {
+    let f_name = x.old_name;
+
+    // global functions can't be closure
+    if (t.inside.contains(f_name).not()) {
+        return true;
+    }
+
+    let mut father_able = true;
+    let father = t.inside[f_name].unwrap();
+
+    if (t.inside.contains(father)) {
+        father_able = check_eligibility(find_function(father).unwrap());
+    }
+
+    let no_flee =
+        match type_of(father) {
+            Fun(_, Fun(_)) => false
+            _ => true
+        }
+
+    let no_fn_arg =
+        x.captured.fold(~init = true, fn (total, x) { total && match @knf.typing[x] {
+            Some(Fun(_)) => false
+            _ => true
+        } });
+
+    let result = no_flee && no_fn_arg && father_able && check_noflee(x.body) && 
+            x.args.length() + x.captured.length() <= 8;
+    return result;
+}
+
+/// Makes closure into normal functions, whenever possible
+/// Still buggy; don't use it
+pub fn opt_remove_closure(program: Program) -> Program {
+    e.transformed = @immut/hashset.T::new();
+
+    for x in program.fundefs {
+        if (check_eligibility(x)) {
+            x.is_closure = false;
+            e.transformed = e.transformed.add(x.old_name);
+        }
+    }
+
+    for x in program.fundefs {
+        e.alias.clear();
+        prepare_closure_alias(x.body);
+        x.body = reform(x.body);
+    }
+
+    for x in e.transformed {
+        let x = find_function(x).unwrap();
+        x.args += x.captured;
+        x.captured = [];
+        println("opt-closure: un-closured \{x.old_name}")
+    }
+
     return program;
 }

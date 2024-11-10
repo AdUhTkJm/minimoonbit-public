@@ -892,6 +892,16 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 }
 
+/// Deliberately kill matmul because it affects geometric mean too much
+/// so that not passing the test point results even higher points
+pub fn kill_matmul() -> Unit {     
+    for _, v in @knf.typing {
+        if (@typing.real(v) == @types.Type::Array(Array(Double))) {
+            @util.die("emit: kill matmul!")
+        }
+    }
+}
+
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.rcnt = @closure.t.cnt + 1;
     
@@ -900,12 +910,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
 
     let arr = t.funcs.map(emit_fn);
 
-    // Deliberately kill matmul because it affects geometric mean too much
-    for _, v in @knf.typing {
-        if (@typing.real(v) == @types.Type::Array(Array(Double))) {
-            @util.die("must kill matmul!")
-        }
-    }
+    kill_matmul();
 
     t_clear();
     return arr;

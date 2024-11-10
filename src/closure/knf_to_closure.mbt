@@ -10,11 +10,14 @@ pub struct ClosureEnv {
     mut prog: Program
 
     mut cnt: Int
+
+    mut inside: Map[Name, Name]
 }
 
 pub let t: ClosureEnv = ClosureEnv :: {
     prog: Program :: { fundefs: [], body: Unit },
-    cnt: 1000000
+    cnt: 1000000,
+    inside: Map::new(),
 };
 
 fn union(a: Set, b: Set) -> Set {
@@ -96,7 +99,7 @@ fn captured(e: @knf.Knf) -> Set {
 }
 
 
-fn convert(knf: @knf.Knf) -> Expr {
+fn convert(knf: @knf.Knf, father: Name) -> Expr {
     match knf {
         Unit => Unit
         Int(x) => Int(x)
@@ -121,12 +124,12 @@ fn convert(knf: @knf.Knf) -> Expr {
 
         ExternalFunctionApplication(name, args) => CallExternal(name, args)
 
-        Let(name, b, c) => Let(name, convert(b), convert(c))
+        Let(name, b, c) => Let(name, convert(b, father), convert(c, father))
 
-        IfEq(a, b, c, d) => IfEq(a, b, convert(c), convert(d))
-        IfLe(a, b, c, d) => IfLe(a, b, convert(c), convert(d))
+        IfEq(a, b, c, d) => IfEq(a, b, convert(c, father), convert(d, father))
+        IfLe(a, b, c, d) => IfLe(a, b, convert(c, father), convert(d, father))
 
-        LetTuple(arr, val, w) => LetTuple(arr, val, convert(w))
+        LetTuple(arr, val, w) => LetTuple(arr, val, convert(w, father))
 
         Apply(f, args) => Call(f, args)
         CallTailRec(f, args) => CallTailRec(f, args)
@@ -141,15 +144,20 @@ fn convert(knf: @knf.Knf) -> Expr {
             }
 
             let cap = Array::from_iter(caps.iter());
+
+            if (father.slot != -1) {
+                t.inside[f_name] = father;
+            }
+            
             t.prog.fundefs.push(FuncDef :: {
                 name: f_name.name.unwrap(),
                 old_name: f_name,
                 is_closure: cap.length() != 0,
                 args: args,
                 captured: cap,
-                body: convert(syn),
+                body: convert(syn, f_name),
             });
-            convert(w)
+            convert(w, father)
         }
     }
 }
@@ -240,11 +248,11 @@ pub fn initial(prog: @knf.Knf) -> Program {
     glob.val = globals(prog);
     globvar.val = global_vars(prog);
 
-    // In case the first round does not capture everything
+    // Loop, in case the first round does not capture everything;
     // see capture.mbt
-    let _ = convert(prog);
+    let _ = convert(prog, Name::slot_only(-1));
     for i = 0; i < 3; i = i + 1 {
-        let body = convert(prog);
+        let body = convert(prog, Name::slot_only(-1));
         t.prog.body = body;
         t.prog.fundefs = [..t.prog.fundefs[t.prog.fundefs.length() / 2:]];
     }
@@ -253,7 +261,7 @@ pub fn initial(prog: @knf.Knf) -> Program {
 }
 
 pub fn closure(prog: @knf.Knf) -> Program {
-    t.prog = initial(prog);
+    t.prog = initial(prog) ;
 
     for x in t.prog.fundefs {
         x.body = amend(x.body);
@@ -261,9 +269,12 @@ pub fn closure(prog: @knf.Knf) -> Program {
 
     t.prog.body = amend(t.prog.body);
     
-    let opt = t.prog
+    let mut opt = t.prog;
+    opt = opt
         |> opt_remove_unused
         |> opt_cse
+        |> opt_remove_unused
+        |> opt_remove_closure
         |> opt_remove_unused;
 
     return opt;
