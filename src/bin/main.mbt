@@ -102,7 +102,7 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
         }
         KnfOpt => {
             let knf = self.knf.unwrap();
-            if (wasm.val) {
+            if (wasm.val || js.val) {
                 self.opt_knf = Some(knf);
             } else {
                 self.opt_knf = Some(@knf.opt(knf))

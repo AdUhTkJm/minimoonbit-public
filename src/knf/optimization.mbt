@@ -518,10 +518,13 @@ pub fn Emulator::find(self: Emulator, x: Name) -> Constant {
 }
 
 pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
-    if (depth > 1000) {
+    if (depth > 400) {
         return Unknown;
     }
-    match knf {
+    let mut result: Constant = Unit;
+    let mut current = knf;
+    while (true) {
+    result = match current {
         Unit => Unit
         Int(i) => Int(i)
         Double(d) => Double(d)
@@ -610,28 +613,42 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
         IfEq(x, y, body, otherwise) => {
             let const = self.emulate(Eq(x, y), depth + 1);
             match const {
-                Int(1) => self.emulate(body, depth + 1);
-                Int(0) => self.emulate(otherwise, depth + 1);
+                Int(1) => {
+                    current = body;
+                    continue;
+                }
+                Int(0) => {
+                    current = otherwise;
+                    continue;
+                }
                 _ => Unknown
             }
         }
         IfLe(x, y, body, otherwise) => {
             let const = self.emulate(Le(x, y), depth + 1);
             match const {
-                Int(1) => self.emulate(body, depth + 1);
-                Int(0) => self.emulate(otherwise, depth + 1);
+                Int(1) => {
+                    current = body;
+                    continue;
+                }
+                Int(0) => {
+                    current = otherwise;
+                    continue;
+                }
                 _ => Unknown
             }
         }
         Let(x, val, w) => {
             self.local[x] = self.emulate(val, depth + 1);
-            self.emulate(w, depth + 1)
+            current = w;
+            continue;
         }
         LetRec({ name: f_name, .. }, w) => {
             self.local[f_name] = Closure(f_name, e.capture[f_name].unwrap().map(fn (x) { self.find(x) }));
-            self.emulate(w, depth + 1);
+            current = w;
+            continue;
         }
-        Apply(f, args) | CallTailRec(f, args) => {
+        Apply(f, args) => {
             let f = self.find(f);
             match f {
                 Closure(name, earg) => {
@@ -654,6 +671,29 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
 
                     if (known(Tuple(args.map(fn (x) { self.find(x) })))) {
                         env.emulate(fdef.body, depth + 1)
+                    } else {
+                        Unknown
+                    }
+                }
+                _ => Unknown
+            }
+        }
+        CallTailRec(f, args) => {
+            let f = self.find(f);
+            match f {
+                Closure(name, _) => {
+                    if (e.fundef.contains(name).not()) {
+                        @util.die("opt-knf: cannot call \{name}")
+                    }
+
+                    let fdef = e.fundef[name].unwrap();
+                    let _ = args.mapi(fn (i, x) {
+                        self.local[fdef.args[i]] = self.find(x);
+                    });
+
+                    if (known(Tuple(args.map(fn (x) { self.find(x) })))) {
+                        current = fdef.body;
+                        continue; // while (true)
                     } else {
                         Unknown
                     }
@@ -771,6 +811,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                 "minimbt_create_ptr_array" => {
                     match (self.find(args[0]), self.find(args[1])) {
                         (Int(len), Fun(f)) => ValuefulArray(Array::make(len, Fun(f)));
+                        (Int(len), ValuefulArray(arr)) => ValuefulArray(Array::make(len, ValuefulArray(arr)));
                         _ => Unknown
                     }
                 }
@@ -786,6 +827,9 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
             }
         }
     }
+    break; // while (true)
+    }
+    return result;
 }
 
 fn known(x: Constant) -> Bool {
@@ -961,7 +1005,10 @@ fn gather_capture(knf: Knf) -> Unit {
 pub fn opt_emulate(knf: Knf) -> Knf {
     let env = Emulator::new();
     let _ = env.emulate(eliminate_main_call(knf), 0);
-    let mut knf = knf;
+    
+    // To reflect the CallTailRec back on our KNF
+    e.fundef.clear();
+    prepare_fundef(knf);
 
     e.global = globals(knf);
     for i = 0; i < 5; i = i + 1 {
@@ -976,11 +1023,33 @@ pub fn opt_emulate(knf: Knf) -> Knf {
                 ..e.fundef[k].unwrap(),
                 body: new
             };
-            knf = modify_main(knf, new);
-            break;
+            return modify_main(knf, new);
         }
     }
     return knf;
+}
+
+pub fn opt_remove_unreachable(knf: Knf) -> Knf {
+    for k, v in e.fundef {
+        if (k.name == Some("main")) {
+            e.used_names = @immut/hashset.T::new().add(k);
+            get_used(v.body);
+            let mut old_len = -1;
+            let mut len = e.used_names.size();
+
+            while (old_len != len) {
+                for k, v in e.fundef {
+                    if (e.used_names.contains(k)) {
+                        get_used(v.body);
+                    }
+                }
+                old_len = len;
+                len = e.used_names.size();
+            }
+            break;
+        }
+    }
+    return knf |> opt_remove_unused_;
 }
 
 pub fn opt(knf: Knf) -> Knf {
@@ -997,7 +1066,8 @@ pub fn opt(knf: Knf) -> Knf {
         |> opt_const_fold
         |> opt_remove_unused
         |> opt_tail_rec
-        |> opt_emulate;
+        |> opt_emulate
+        |> opt_remove_unreachable;
     
     return opt;
 }

@@ -999,7 +999,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
 
     let arr = t.funcs.map(emit_fn);
 
-    kill_matmul();
+    // kill_matmul();
 
     t_clear();
     return arr;
