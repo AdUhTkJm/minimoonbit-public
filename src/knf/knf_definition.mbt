@@ -31,11 +31,13 @@ pub enum Knf {
     Put(Name, Name, Name)
     ExternalFunctionApplication(String, Array[Name])
     CallTailRec(Name, Array[Name])
+    ConstTuple(Array[Constant])
+    ExternalArray(Array[Constant])
 } derive(Show, Eq)
 
 pub struct FuncDef {
     name : Name
     ty : Type
     args : Array[Name]
-    body : Knf
+    mut body : Knf
 } derive(Show, Eq)

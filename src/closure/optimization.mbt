@@ -34,7 +34,7 @@ fn get_used(expr: Expr) -> Unit {
         Deref(a) | LShift(a, _) =>
             e.add_used([a]);
 
-        Unit | Int(_) | Double(_) =>
+        Unit | Int(_) | Double(_) | ExternalArray(_) =>
             ();
 
         IfEq(a, b, body, otherwise) |
@@ -71,8 +71,9 @@ fn side_effect_free(expr: Expr) -> Bool {
             @knf.e.is_se_free[f] == Some(true)
         }
         CallExternal(name, _) =>
-            ["read_int", "read_char", "print_int", "print_char",
-            "print_endline", "minimbt_malloc", "minimbt_create_ptr_array"].contains(name._)
+            ["minimbt_read_int", "minimbt_read_char", "minimbt_print_int", "minimbt_print_char",
+            "minimbt_print_endline", "minimbt_malloc", "minimbt_create_ptr_array",
+            "minimbt_create_float_array", "minimbt_create_array"].contains(name._).not()
         IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
             side_effect_free(body) && side_effect_free(otherwise)
         Let(_, val, w) =>

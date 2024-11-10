@@ -387,6 +387,9 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
                     result.push(body[i]);
                 }
             }
+            Slli(a, Zero, _) => {
+                result.push(Mv(a, Zero));
+            }
             J(a) => {
                 result.push(body[i]);
                 if (a._.ends_with("_tailrec")) {
@@ -628,7 +631,7 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
     return result;
 }
 
-/// This function inlines loop invariants
+/// Inlines loop invariants identified by opt_loop_invariant
 pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
     let range = identify_loop(body);
     let mut new_body = body;
@@ -714,9 +717,9 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
     return new_body;
 }
 
-/// This function redoes register allocation
-/// (Map existing allocation to another one)
-/// in case we used less register after optimization
+/// Redoes register allocation
+/// (maps existing allocation to another one)
+/// in case we used fewer registers after optimization
 pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
     t.offset = 0;
 

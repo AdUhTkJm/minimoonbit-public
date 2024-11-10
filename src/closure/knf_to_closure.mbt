@@ -28,25 +28,9 @@ fn union(a: Set, b: Set) -> Set {
     l;
 }
 
-fn globals(e: @knf.Knf) -> Set {
-    match e {
-        Let(a, _, c) => union(Set::from_array([a]), globals(c))
-        LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
-        _ => Set::new();
-    }
-}
-
-fn global_vars(e: @knf.Knf) -> Set {
-    match e {
-        Let(a, _, c) => union(Set::from_array([a]), global_vars(c))
-        LetRec(_, w) => global_vars(w)
-        _ => Set::new();
-    }
-}
-
 fn captured(e: @knf.Knf) -> Set {
     match e {
-        Int(_) | Double(_) | Unit => Set::new()
+        Int(_) | Double(_) | Unit | ExternalArray(_) | ConstTuple(_) => Set::new()
 
         Put(a, b, c) =>
             Set::from_array([a, b, c])
@@ -123,6 +107,7 @@ fn convert(knf: @knf.Knf, father: Name) -> Expr {
         Get(x, inner) => ArrayGet(x, inner)
 
         ExternalFunctionApplication(name, args) => CallExternal(name, args)
+        ExternalArray(const) | ConstTuple(const) => ExternalArray(const)
 
         Let(name, b, c) => Let(name, convert(b, father), convert(c, father))
 
@@ -262,13 +247,13 @@ fn amend(expr: Expr) -> Expr {
 }
 
 pub fn initial(prog: @knf.Knf) -> Program {
-    glob.val = globals(prog);
-    globvar.val = global_vars(prog);
+    glob.val = @knf.globals(prog);
+    globvar.val = @knf.global_vars(prog);
 
     // Loop, in case the first round does not capture everything;
     // see capture.mbt
     let _ = convert(prog, Name::slot_only(-1));
-    for i = 0; i < 3; i = i + 1 {
+    for i = 0; i < 5; i = i + 1 {
         let body = convert(prog, Name::slot_only(-1));
         t.prog.body = body;
         t.prog.fundefs = [..t.prog.fundefs[t.prog.fundefs.length() / 2:]];
@@ -278,7 +263,7 @@ pub fn initial(prog: @knf.Knf) -> Program {
 }
 
 pub fn closure(prog: @knf.Knf) -> Program {
-    t.prog = initial(prog) ;
+    t.prog = initial(prog);
 
     for x in t.prog.fundefs {
         x.body = amend(x.body);
@@ -292,6 +277,7 @@ pub fn closure(prog: @knf.Knf) -> Program {
         |> opt_cse
         |> opt_remove_unused;
         // opt_remove_closure is wrong.
+
 
     return opt;
 }

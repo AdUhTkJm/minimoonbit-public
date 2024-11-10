@@ -30,6 +30,9 @@ struct T {
 
     // All functions
     mut funcs: Array[@closure.FuncDef]
+
+    // A list of external arrays
+    mut externals: Map[@closure.Expr, @types.Name]
 }
 
 fn T::new() -> T {
@@ -42,6 +45,7 @@ fn T::new() -> T {
         rcnt: 0,
         labelcount: 0,
         funcs: [],
+        externals: Map::new(),
     }
 }
 
@@ -330,6 +334,26 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         ArrayGet(_) | ArrayPut(_) => 
             @util.die("emit: array operations should have been translated")
+        ExternalArray(const) => {
+            if (const.length() == 0) {
+                return fake(Unit);
+            } 
+            let ty: @types.Type = match const[0] {
+                Int(_) => Int
+                Double(_) => Double
+                Fun(name) => typeof(name)
+                _ => @util.die("emit: bad external array: \{const}")
+            }
+            let tmp = fake(Array(ty));
+            if (t.externals.contains(expr)) {
+                asm.push(La(tmp, t.externals[expr].unwrap().to_string()));
+            } else {
+                let ext = fake(Array(ty));
+                t.externals[expr] = real(ext);
+                asm.push(La(tmp, real(ext).to_string()));
+            }
+            tmp;
+        }
         MakeTuple(arr) => {
             let r = fake(Tuple(arr.map(typeof)));
 
@@ -691,11 +715,51 @@ pub fn emit_global(logger: Logger) -> Unit {
         }
 
         // These are temporary things that we'd never use
+        // External arrays are like this but we don't emit them here
         if (x.name.is_empty()) {
             continue;
         }
         
         logger.write_string("\{x.to_string()}:\n    .dword 0\n");
+    }
+}
+
+pub fn emit_externals(logger: Logger) -> Unit {
+    for k, v in t.externals {
+        let const = match k {
+            ExternalArray(arr) => arr
+            _ => @util.die("emit: bad external array: \{k}")
+        }
+        if (const.length() == 0) {
+            continue;
+        }
+
+        let ty: @types.Type = match const[0] {
+            Int(_) => Int
+            Double(_) => Double
+            _ => @util.die("emit: bad external array: \{const}")
+        }
+        logger.write_string("\{v}:\n    ");
+        logger.write_string(match ty {
+            Int => ".word "
+            Double => ".double "
+            _ => ".dword "
+        });
+
+        logger.write_string(match const[0] {
+            Int(x) => x.to_string()
+            Double(x) => x.to_string()
+            _ => @util.die("emit: bad external array: \{const}")
+        });
+
+        for x in const[1:] {
+            logger.write_string(match x {
+                Int(x) => ", " + x.to_string()
+                Double(x) => "," + x.to_string()
+                _ => @util.die("emit: bad external array: \{const}")
+            });
+        }
+        logger.write_string("\n\n");
     }
 }
 

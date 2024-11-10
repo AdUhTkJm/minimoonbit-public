@@ -77,10 +77,10 @@ fn KnfEnv::is_global(self: KnfEnv, name: String) -> Bool {
 
 typealias NameSet = @immut/hashset.T[(String, Type)];
 
-fn globals(e: @types.Syntax) -> NameSet {
+fn global_syntaxs(e: @types.Syntax) -> NameSet {
     match e {
-        Let(a, _, c) => union_names(NameSet::from_array([a]), globals(c))
-        LetRec({ name: f_name, .. }, w) => union_names(NameSet::from_array([f_name]), globals(w))
+        Let(a, _, c) => union_names(NameSet::from_array([a]), global_syntaxs(c))
+        LetRec({ name: f_name, .. }, w) => union_names(NameSet::from_array([f_name]), global_syntaxs(w))
         _ => NameSet::new();
     }
 }
@@ -283,7 +283,7 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
 pub fn KnfEnv::convert(self: KnfEnv, s: @types.Syntax) -> Knf {
     // We can always refer to a global variable before it is defined
     // So get global vars here
-    self.globals = globals(s);
+    self.globals = global_syntaxs(s);
     for x in self.globals {
         self.add(x.0, x.1);
     }

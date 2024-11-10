@@ -14,7 +14,8 @@ fn concat(x: Array[Double], y: Array[Double], xlen: Int, ylen: Int) -> Array[Dou
         if (i[0] == xlen + ylen) {
             result
         } else {
-            let _ = if not(i[0] <= xlen) {
+            // if i[0] < xlen
+            let _ = if not(xlen <= i[0]) {
                 result[i[0]] = x[i[0]];
                 ()
             } else {

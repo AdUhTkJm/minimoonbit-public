@@ -37,6 +37,7 @@ pub enum Expr {
     Deref(Name)
     Save(Name, Name)
     LShift(Name, Int)
+    ExternalArray(Array[@knf.Constant])
 } derive(Show, Eq)
 
 pub fn Expr::hash(self: Expr) -> Int {
