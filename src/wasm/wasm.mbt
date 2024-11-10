@@ -299,6 +299,9 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             if (name._ == "minimbt_create_float_array") {
                 real_name = "minimbt_create_ptr_array";
             }
+            if (name._ == "minimbt_create_array") {
+                real_name = "minimbt_create_ptr_array";
+            }
             asm.push(LocalSet(r, DirectOutput("(call $\{real_name} \{arg})")));
             Var(r);
         }

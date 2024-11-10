@@ -183,6 +183,13 @@ fn fake(ty: Type) -> Name {
     name
 }
 
+fn lookup(x: Name) -> Type {
+    match @knf.typing[x] {
+        Some(ty) => @typing.real(ty)
+        None => @util.die("closure: cannot identify type: \{x}")
+    }
+}
+
 
 /// Annotates closure operation to facilitate RISC-V stage
 /// Also transforms array operations into dereference
@@ -200,18 +207,28 @@ fn amend(expr: Expr) -> Expr {
         }
         ArrayGet(x, i) => {
             let offset = fake(Int);
-            let addr = fake(@knf.typing[x].unwrap());
+            let addr = fake(lookup(x));
+            let ty = match lookup(x) {
+                Array(t) => t
+                _ => @util.die("closure: array-get of non array: \{x} (\{lookup(x)})")
+            }
+            let size = if (ty == Int) { 2 } else { 3 }
 
             Let(addr,
-            Let(offset, LShift(i, 3), Add(x, offset)),
+            Let(offset, LShift(i, size), Add(x, offset)),
             Deref(addr));
         }
         ArrayPut(x, i, val) => {
             let offset = fake(Int);
-            let addr = fake(@knf.typing[x].unwrap());
+            let addr = fake(lookup(x));
+            let ty = match lookup(x) {
+                Array(t) => t
+                _ => @util.die("closure: array-put of non array: \{x} (\{lookup(x)})")
+            }
+            let size = if (ty == Int) { 2 } else { 3 }
 
             Let(addr,
-            Let(offset, LShift(i, 3), Add(x, offset)),
+            Let(offset, LShift(i, size), Add(x, offset)),
             Save(addr, val));
         }
         IfLe(a, b, body, otherwise) =>
@@ -273,9 +290,8 @@ pub fn closure(prog: @knf.Knf) -> Program {
     opt = opt
         |> opt_remove_unused
         |> opt_cse
-        |> opt_remove_unused
-        |> opt_remove_closure
         |> opt_remove_unused;
+        // opt_remove_closure is wrong.
 
     return opt;
 }

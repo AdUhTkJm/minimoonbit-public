@@ -395,7 +395,7 @@ pub fn is_intreg(r: Reg) -> Bool {
         SpiltDouble(_) => false
         Arg(_) => true
         Farg(_) => false
-        Fake(x) => type_of(x) != Double
+        Fake(x) => typeof(x) != Double
         z => reg_all_list.contains(z);
     }
 }

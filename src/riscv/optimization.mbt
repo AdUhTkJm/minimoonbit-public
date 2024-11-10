@@ -3,7 +3,7 @@ fn defake(reg: Reg) -> Reg {
         Fake(name) => match t.regs[name] {
             Some(w) => w
             None => {
-                if (type_of(name) != Unit) {
+                if (typeof(name) != Unit) {
                     @util.die("emit: cannot find: \{name}");
                 }
                 Zero
@@ -370,10 +370,15 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
                     result.push(body[i]);
                 }
             }
-            Li(a, _) => {
+            Li(a, b) => {
                 // Remove "li zero, b"
+                // Reform "li a, 0"
                 if (a != Zero) {
-                    result.push(body[i]);
+                    if (b == "0") {
+                        result.push(Mv(a, Zero));
+                    } else {
+                        result.push(body[i]);
+                    }
                 }
             }
             FmvD(a, b) => {
@@ -820,7 +825,7 @@ pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
 pub fn consolidate(body: Array[RvAsm]) -> Array[RvAsm] {
     fn is_unit(r) {
         match r {
-            Some(rg) => is_fake(rg) && type_of(real(rg)) == Unit
+            Some(rg) => is_fake(rg) && typeof(real(rg)) == Unit
             None => false
         }
     }

@@ -83,17 +83,17 @@ pub fn Type::is_float_like(self : Type) -> Bool {
     }
 }
 
-pub fn Type::size_of(self : Type, size_of_ptr : Int) -> Int {
+pub fn Type::size_of(self: Type) -> Int {
     match self {
         Unit => 0
         Bool => 4
         Int => 4
         Double => 8
-        Tuple(_) | Fun(_, _) | Array(_) | Ptr => size_of_ptr
+        Tuple(_) | Fun(_, _) | Array(_) | Ptr => 8
         Var(t) =>
             match t.val {
-                Some(t) => t.size_of(size_of_ptr)
-                None => @util.die("Uninstantiated type variable")
+                Some(t) => t.size_of()
+                None => @util.die("size-of: unknown")
             }
     }
 }

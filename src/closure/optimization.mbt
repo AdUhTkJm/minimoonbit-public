@@ -169,7 +169,6 @@ fn rename(expr: Expr, f: (Name) -> Name) -> Expr {
 }
 
 
-// This is for opt_cse
 fn prepare_alias(expr: Expr) -> Unit {
     match expr {
         Let(a, val, w) => {
@@ -423,7 +422,6 @@ fn check_eligibility(x: FuncDef) -> Bool {
 }
 
 /// Makes closure into normal functions, whenever possible
-/// Still buggy; don't use it
 pub fn opt_remove_closure(program: Program) -> Program {
     e.transformed = @immut/hashset.T::new();
 

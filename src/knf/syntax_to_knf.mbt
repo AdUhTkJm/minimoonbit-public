@@ -120,12 +120,13 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             let tl = self.new_temp(Int);
             let te = self.new_temp(self.lookup(elem));
             let array = match self.lookup(elem) {
-                Double => "float"
-                _ => "ptr"
+                Double => "_float"
+                Int => ""
+                _ => "_ptr"
             }
             Let(tl, self.to_knf(len),
             Let(te, self.to_knf(elem),
-            ExternalFunctionApplication("minimbt_create_\{array}_array", [tl, te])));
+            ExternalFunctionApplication("minimbt_create\{array}_array", [tl, te])));
         }
         Prim(l, r, op, ~kind = c) => {
             let ty: @types.Type = match c {

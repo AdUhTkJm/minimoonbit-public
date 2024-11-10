@@ -71,7 +71,7 @@ fn reg(r: @types.Name, allowed: Array[Reg]) -> Unit {
     }
     
     // Spill
-    if (type_of(r) == Double) {
+    if (typeof(r) == Double) {
         t.regs[r] = SpiltDouble(t.offset);
     } else {
         t.regs[r] = Spilt(t.offset);
@@ -134,10 +134,17 @@ fn store_last(reg: Option[Reg], i: Int) -> Unit {
     }
 }
 
-fn type_of(name: @types.Name) -> @types.Type {
+fn typeof(name: @types.Name) -> @types.Type {
     match @knf.typing[name] {
         Some(x) => @typing.real(x)
         _ => @util.die("emit: cannot determine type of \{name}")
+    }
+}
+
+fn sizeof(name: @types.Name) -> Int {
+    match typeof(name) {
+        Int => 4
+        _ => 8
     }
 }
 
@@ -177,7 +184,7 @@ fn basic_regalloc(asm: Array[RvAsm], allowed: Array[Reg], f_allowed: Array[Reg])
         if (@closure.glob.val.contains(r)) {
             continue;
         }
-        reg(r, if (type_of(r) == Double) { f_allowed } else { allowed });
+        reg(r, if (typeof(r) == Double) { f_allowed } else { allowed });
     }
 }
 
@@ -270,7 +277,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         Eq(a, b) => {
             let r = fake(Int);
-            if (type_of(a) == Double) {
+            if (typeof(a) == Double) {
                 asm.push(FeqD(r, Fake(a), Fake(b)));
             } else {
                 asm.push(Xor(r, Fake(a), Fake(b)));
@@ -280,7 +287,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         Le(a, b) => {
             let r = fake(Int);
-            if (type_of(a) == Double) {
+            if (typeof(a) == Double) {
                 asm.push(FleD(r, Fake(a), Fake(b)));
             } else {
                 asm.push(Slt(r, Fake(b), Fake(a)));
@@ -299,45 +306,49 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             r;
         }
         Deref(x) => {
-            let ty = match type_of(x) {
+            let ty = match typeof(x) {
                 Array(w) => w
-                _ => @util.die("emit: deref non-array \{x}: \{type_of(x)}");
+                _ => @util.die("emit: deref non-array \{x}: \{typeof(x)}");
             }
 
             let result = fake(ty);
 
-            if (ty == Double) {
-                asm.push(Fld(result, { base: Fake(x), offset: 0 }));
-            } else {
-                asm.push(Ld(result, { base: Fake(x), offset: 0 }));
+            match ty {
+                Double => asm.push(Fld(result, { base: Fake(x), offset: 0 }));
+                Int =>  asm.push(Lw(result, { base: Fake(x), offset: 0 }));
+                _ => asm.push(Ld(result, { base: Fake(x), offset: 0 }));
             }
-            result
+            result;
         }
         Save(x, val) => {
-            if (type_of(val) == Double) {
-                asm.push(Fsd(Fake(val), { base: Fake(x), offset: 0 }));
-            } else {
-                asm.push(Sd(Fake(val), { base: Fake(x), offset: 0 }));
+            match typeof(val) {
+                Double => asm.push(Fsd(Fake(val), { base: Fake(x), offset: 0 }));
+                Int => asm.push(Sw(Fake(val), { base: Fake(x), offset: 0 }));
+                _ => asm.push(Sd(Fake(val), { base: Fake(x), offset: 0 }));
             }
             fake(Unit);
         }
         ArrayGet(_) | ArrayPut(_) => 
             @util.die("emit: array operations should have been translated")
         MakeTuple(arr) => {
-            let r = fake(Tuple(arr.map(type_of)));
+            let r = fake(Tuple(arr.map(typeof)));
 
             // Allocate an array for the tuple
-            asm.push(Li(A0, (8 * arr.length()).to_string()));
-            asm.push(Call("minimbt_create_ptr_array"));
+            let size = arr.fold(~init = 0, fn (total, x) { total + sizeof(x) });
+            asm.push(Li(A0, size.to_string()));
+            asm.push(Call("minimbt_malloc"));
+
+            let mut offset = 0;
 
             // Put everything into the array
-            let _ = arr.mapi(fn (i, x) {
-                if (type_of(x) == Double) {
-                    asm.push(Fsd(Fake(x), { base: A0, offset: i * 8 }));
-                } else {
-                    asm.push(Sd(Fake(x), { base: A0, offset: i * 8 }));
+            for x in arr {
+                match typeof(x) {
+                    Double => asm.push(Fsd(Fake(x), { base: A0, offset: offset }));
+                    Int => asm.push(Sw(Fake(x), { base: A0, offset: offset }));
+                    _ => asm.push(Sd(Fake(x), { base: A0, offset: offset }));
                 }
-            });
+                offset += sizeof(x);
+            }
 
             // Record the array address
             asm.push(Mv(r, A0));
@@ -348,10 +359,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
             
-            let ty: @types.Type = match type_of(a) {
+            let ty: @types.Type = match typeof(a) {
                 Int => Int
                 Double => Double
-                _ => @util.die("emit: type error in if-eq (\{a}: \{type_of(a)})");
+                _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
             };
 
             if (ty == Int) {
@@ -363,7 +374,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             }
             
             let e_body = emit_expr(body);
-            let r = fake(type_of(real(e_body)));
+            let r = fake(typeof(real(e_body)));
 
             asm.push(Mv(r, e_body));
             asm.push(J(end));
@@ -379,10 +390,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
 
-            let ty: @types.Type = match type_of(a) {
+            let ty: @types.Type = match typeof(a) {
                 Int => Int
                 Double => Double
-                _ => @util.die("emit: type error in if-eq (\{a}: \{type_of(a)})");
+                _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
             };
 
             if (ty == Int) {
@@ -394,7 +405,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             }
             
             let e_body = emit_expr(body);
-            let r = fake(type_of(real(e_body)));
+            let r = fake(typeof(real(e_body)));
 
             asm.push(Mv(r, e_body));
             asm.push(J(end));
@@ -411,19 +422,21 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             emit_expr(w);
         }
         LetTuple(arr, val, w) => {
-            let _ = arr.mapi(fn (i, x) {
-                if (type_of(x) == Double) {
-                    asm.push(Fld(Fake(x), { base: Fake(val), offset: i * 8 }));
-                } else {
-                    asm.push(Ld(Fake(x), { base: Fake(val), offset: i * 8 }));
+            let mut offset = 0;
+            for x in arr {
+                match typeof(x) {
+                    Double => asm.push(Fld(Fake(x), { base: Fake(val), offset: offset }));
+                    Int => asm.push(Lw(Fake(x), { base: Fake(val), offset: offset }));
+                    _ => asm.push(Ld(Fake(x), { base: Fake(val), offset: offset }));
                 }
-            });
+                offset += sizeof(x);
+            };
             emit_expr(w);
         }
         CallExternal(name, args) => {
             // The only external we used is create_**_array
             if (args.length() > 1) {
-                match type_of(args[1]) {
+                match typeof(args[1]) {
                     Double => asm.push(FmvD(Fa0, Fake(args[1])));
                     _ => asm.push(Mv(A1, Fake(args[1])));
                 }
@@ -431,7 +444,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 asm.push(Mv(A0, Fake(args[0])));
                 asm.push(Call(name._));
                 
-                let rv = fake(Array(type_of(args[1])));
+                let rv = fake(Array(typeof(args[1])));
                 asm.push(Mv(rv, A0));
                 rv
             } else {
@@ -444,7 +457,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             // Guaranteed that name is directly callable
 
             let _ = args.mapi(fn (i, x) {
-                match type_of(x) {
+                match typeof(x) {
                     Double(_) => asm.push(FmvD(Farg(i), Fake(x)));
                     _ => asm.push(Mv(Arg(i), Fake(x)));
                 }
@@ -452,9 +465,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             asm.push(Call(name_fn(name)));
 
-            let ret_ty = match type_of(name) {
+            let ret_ty = match typeof(name) {
                 Fun(_, r) => r
-                _ => @util.die("emit: calling non-function: \{type_of(name)}")
+                _ => @util.die("emit: calling non-function: \{typeof(name)}")
             }
             let rv = fake(ret_ty);
             asm.push(Mv(rv, match ret_ty {
@@ -473,7 +486,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             });
 
             let _ = f.captured.map(fn (x) {
-                match type_of(x) {
+                match typeof(x) {
                     Double => asm.push(FmvD(Fake(x), Fake(x)));
                     _ => asm.push(Mv(Fake(x), Fake(x)));
                 };
@@ -481,9 +494,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             asm.push(J("\{f.old_name}_tailrec"));
 
-            let ret_ty = match type_of(name) {
+            let ret_ty = match typeof(name) {
                 Fun(_, r) => r
-                _ => @util.die("emit: calling non-function: \{type_of(name)}")
+                _ => @util.die("emit: calling non-function: \{typeof(name)}")
             }
             let rv = fake(ret_ty);
             asm.push(Mv(rv, match ret_ty {
@@ -496,7 +509,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             fn pack(f) {
                 let r = fake(Ptr);
                 let ff = find_func(f).unwrap();
-                let result = fake(type_of(f));
+                let result = fake(typeof(f));
 
                 let amap = {};
 
@@ -508,16 +521,22 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                     }
                 }
 
+                let capsize = ff.captured.fold(~init = 0, fn (total, x) { total + sizeof(x) });
+
                 asm.push(La(r, name_fn(f)));
-                asm.push(Li(A0, (8 + ff.captured.length() * 8).to_string()));
+                asm.push(Li(A0, (8 + capsize).to_string()));
                 asm.push(Call("minimbt_malloc"));
                 asm.push(Sd(r, { base: A0, offset: 0 }));
-                let _ = ff.captured.mapi(fn (i, x) {
-                    match type_of(x) {
-                        Double => asm.push(Fsd(amap[x].unwrap(), { base: A0, offset: 8 + i * 8 }));
-                        _ => asm.push(Sd(amap[x].unwrap(), { base: A0, offset: 8 + i * 8 }));
+
+                let mut offset = 8;
+                for x in ff.captured {
+                    match typeof(x) {
+                        Double => asm.push(Fsd(amap[x].unwrap(), { base: A0, offset: offset }));
+                        Int => asm.push(Sw(amap[x].unwrap(), { base: A0, offset: offset }));
+                        _ => asm.push(Sd(amap[x].unwrap(), { base: A0, offset: offset }));
                     }
-                });
+                    offset += sizeof(x);
+                }
 
                 asm.push(Mv(result, A0));
                 return result;
@@ -531,7 +550,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Mv(Arg(args.length()), Fake(closure)));
 
             let _ = args.mapi(fn (i, x) {
-                match type_of(x) {
+                match typeof(x) {
                     Double(_) => asm.push(FmvD(Farg(i), Fake(x)));
                     _ => asm.push(Mv(Arg(i), Fake(x)));
                 }
@@ -539,9 +558,9 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             asm.push(Jalr(f));
 
-            let ret_ty = match type_of(closure) {
+            let ret_ty = match typeof(closure) {
                 Fun(_, r) => r
-                _ => @util.die("emit: calling non-function: \{type_of(closure)}")
+                _ => @util.die("emit: calling non-function: \{typeof(closure)}")
             }
             let rv = fake(ret_ty);
             asm.push(Mv(rv, match ret_ty {
@@ -575,7 +594,7 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
             if (is_fake(b)) {
                 let f_name = real(b);
 
-                if (type_of(f_name) == Unit) {
+                if (typeof(f_name) == Unit) {
                     continue;
                 }
 
@@ -583,7 +602,7 @@ fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
                 // must make it *a = *b
                 if (@closure.glob.val.contains(f_name)) {
                     let temp = fake(Ptr);
-                    let b = fake(type_of(f_name));
+                    let b = fake(typeof(f_name));
                     result.push(La(temp, f_name.to_string()));
                     result.push(Ld(b, { base: temp, offset: 0 }));
                     result.push(La(temp, real(a).to_string()));
@@ -637,20 +656,20 @@ fn tidy_fp(asm: Array[RvAsm]) -> Array[RvAsm] {
     for x in asm {
         match x {
             Mv(a, b) => {
-                if (is_fake(a) && type_of(real(a)) == Double ||
-                    is_fake(b) && type_of(real(b)) == Double) {
+                if (is_fake(a) && typeof(real(a)) == Double ||
+                    is_fake(b) && typeof(real(b)) == Double) {
                         result.push(FmvD(a, b));
                         continue;
                 }
             }
             Ld(r, mem) => {
-                if (is_fake(r) && type_of(real(r)) == Double) {
+                if (is_fake(r) && typeof(real(r)) == Double) {
                     result.push(Fld(r, mem));
                     continue;
                 }
             }
             Sd(r, mem) => {
-                if (is_fake(r) && type_of(real(r)) == Double) {
+                if (is_fake(r) && typeof(real(r)) == Double) {
                     result.push(Fsd(r, mem));
                     continue;
                 }
@@ -707,7 +726,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     // Load arguments
     let load_arg: Array[RvAsm] = [];
     let _ = fun.args.mapi(fn (i, x) {
-        match type_of(x) {
+        match typeof(x) {
             Double => load_arg.push(FmvD(Fake(x), Farg(i)));
             _ => load_arg.push(Mv(Fake(x), Arg(i)));
         }
@@ -715,12 +734,18 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // Load environment (if this is a closure)
     let env = Arg(fun.args.length());
-    let _ = fun.captured.mapi(fn (i, x) {
-        load_arg.push(Ld(Fake(x), { base: env, offset: i * 8 + 8 }));
-    });
+    let mut cap_offset = 0;
+    for x in fun.captured {
+        match typeof(x) {
+            Double => load_arg.push(Fld(Fake(x), { base: env, offset: cap_offset + 8 }));
+            Int => load_arg.push(Lw(Fake(x), { base: env, offset: cap_offset + 8 }));
+            _ => load_arg.push(Ld(Fake(x), { base: env, offset: cap_offset + 8 }));
+        }
+        cap_offset += sizeof(x);
+    };
 
     let ret = emit_expr(fun.body);
-    let ret_reg = match type_of(real(ret)) {
+    let ret_reg = match typeof(real(ret)) {
         Double => Fa0
         _ => A0
     }
