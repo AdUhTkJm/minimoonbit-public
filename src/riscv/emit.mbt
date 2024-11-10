@@ -995,11 +995,26 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.rcnt = @closure.t.cnt + 1;
     
     t.funcs = program.fundefs.copy();
-    t.funcs.push(emit_main(program.body));
+    
+    // No global variables
+    // (We will always have one extra unused global variable)
+    if (@closure.globvar.val.size() != 1) {
+        t.funcs.push(emit_main(program.body));
+    }
 
     let arr = t.funcs.map(emit_fn);
 
-    // kill_matmul();
+    // No global variables:
+    // just directly use main as entry
+    if (@closure.globvar.val.size() == 1) {
+        for x in arr {
+            if (x.name == "main") {
+                x.name = "minimbt_main";
+            }
+        }
+    }
+
+    kill_matmul();
 
     t_clear();
     return arr;
@@ -1007,9 +1022,9 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
 
 
 pub struct AssemblyFunction {
-    name : String
-    is_extern: Bool
-    body : Array[RvAsm]
+    mut name : String
+    mut is_extern: Bool
+    mut body : Array[RvAsm]
 }
 
 pub fn AssemblyFunction::output(

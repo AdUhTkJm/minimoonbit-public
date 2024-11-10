@@ -22,6 +22,12 @@ pub struct OptEnv {
 
     // A list of all global things
     mut global: @immut/hashset.T[Name]
+
+    // How long we've spent in emulation
+    mut counter: Int
+
+    // Shall we proceed in opt_emulate
+    mut proceed: Bool
 }
 
 pub enum Constant {
@@ -123,6 +129,8 @@ fn OptEnv::new() -> OptEnv {
         capture: Map::new(),
         tail_success: Unknown,
         global: @immut/hashset.T::new(),
+        counter: 0,
+        proceed: true
     }
     return env;
 }
@@ -259,6 +267,7 @@ fn side_effect_free(knf: Knf) -> Bool {
             side_effect_free(w)
         Put(_) => false
         Var(x) => e.is_se_free[x] != Some(false)
+        Apply(x, _) => e.is_se_free[x] != Some(false)
         _ => true
     }
 }
@@ -282,6 +291,7 @@ fn weak_side_effect_free(knf: Knf) -> Bool {
         LetTuple(_, _, w) =>
             weak_side_effect_free(w)
         Var(x) => e.wse_free[x] != Some(false)
+        Apply(x, _) => e.wse_free[x] != Some(false)
         _ => true
     }
 }
@@ -325,7 +335,7 @@ fn opt_remove_unused_(knf: Knf) -> Knf {
         LetTuple(x, arr, w) =>
             LetTuple(x, arr, opt_remove_unused_(w))
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
-            if (used(name).not()) {
+            if (used(name).not() && name.name.unwrap().starts_with("init_").not()) {
                 opt_remove_unused_(w)
             } else {
                 LetRec({ name: name, ty: ty, args: args, body: opt_remove_unused_(syn) }, opt_remove_unused_(w))
@@ -523,7 +533,12 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
     }
     let mut result: Constant = Unit;
     let mut current = knf;
-    while (true) {
+    while (result != Unknown) {
+    if (e.counter > 5000000) {
+        e.proceed = false;
+        return Unknown;
+    }
+    e.counter += 1;
     result = match current {
         Unit => Unit
         Int(i) => Int(i)
@@ -532,82 +547,82 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
         Neg(x) => {
             match self.find(x) {
                 Int(x) => Int(-x)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         BNeg(x) => {
             match self.find(x) {
                 Int(1) => Int(0)
                 Int(0) => Int(1)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Add(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(x + y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Sub(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(x - y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Mul(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(x * y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Div(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(x / y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Eq(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(if (x == y) {1} else {0})
                 (Double(x), Double(y)) => Int(if (x == y) {1} else {0})
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Le(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Int(x), Int(y)) => Int(if (x <= y) {1} else {0})
                 (Double(x), Double(y)) => Int(if (x <= y) {1} else {0})
-                _ => Unknown
+                _ => return Unknown
             }
         }
         FNeg(x) => {
             match self.find(x) {
                 Double(x) => Double(-x)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         FAdd(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Double(x), Double(y)) => Double(x + y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         FSub(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Double(x), Double(y)) => Double(x - y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         FMul(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Double(x), Double(y)) => Double(x * y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         FDiv(x, y) => {
             match (self.find(x), self.find(y)) {
                 (Double(x), Double(y)) => Double(x / y)
-                _ => Unknown
+                _ => return Unknown
             }
         }
         IfEq(x, y, body, otherwise) => {
@@ -621,7 +636,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     current = otherwise;
                     continue;
                 }
-                _ => Unknown
+                _ => return Unknown
             }
         }
         IfLe(x, y, body, otherwise) => {
@@ -635,7 +650,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     current = otherwise;
                     continue;
                 }
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Let(x, val, w) => {
@@ -672,10 +687,10 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     if (known(Tuple(args.map(fn (x) { self.find(x) })))) {
                         env.emulate(fdef.body, depth + 1)
                     } else {
-                        Unknown
+                        return Unknown
                     }
                 }
-                _ => Unknown
+                _ => return Unknown
             }
         }
         CallTailRec(f, args) => {
@@ -695,10 +710,10 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                         current = fdef.body;
                         continue; // while (true)
                     } else {
-                        Unknown
+                        return Unknown
                     }
                 }
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Tuple(arr) => {
@@ -711,18 +726,14 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                         self.local[x] = v[i];
                     });
                 }
-                _ => {
-                    for x in arr {
-                        self.local[x] = Unknown;
-                    }
-                }
+                _ => return Unknown
             }
             self.emulate(w, depth + 1)
         }
         Get(x, i) => {
             match (self.find(x), self.find(i)) {
                 (ValuefulArray(v), Int(i)) => v[i]
-                _ => Unknown
+                _ => return Unknown
             }
         }
         Put(x, i, val) => {
@@ -739,7 +750,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
         ExternalFunctionApplication(name, args) => {
             match name {
                 "minimbt_read_int" | "minimbt_read_char" =>
-                    Unknown
+                    return Unknown
 
                 "minimbt_print_int" | "minimbt_print_endline" |
                 "minimbt_print_char" =>
@@ -748,63 +759,63 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                 "minimbt_sin" => {
                     match self.find(args[0]) {
                         Double(x) => Double(@math.sin(x))
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_cos" => {
                     match self.find(args[0]) {
                         Double(x) => Double(@math.cos(x))
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_atan" => {
                     match self.find(args[0]) {
                         Double(x) => Double(@math.atan(x))
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_sqrt" => {
                     match self.find(args[0]) {
                         Double(x) => Double(x.sqrt())
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_floor" => {
                     match self.find(args[0]) {
                         Double(x) => Double(x.floor())
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_abs_float" => {
                     match self.find(args[0]) {
                         Double(x) => Double(if (x < 0) { -x } else { x })
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_int_of_float" | "minimbt_truncate" => {
                     match self.find(args[0]) {
                         Double(x) => Int(x.to_int())
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_float_of_int" => {
                     match self.find(args[0]) {
                         Int(x) => Double(x.to_double())
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_create_array" => {
                     match (self.find(args[0]), self.find(args[1])) {
                         (Int(len), Int(elem)) => ValuefulArray(Array::make(len, Int(elem)));
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
@@ -812,14 +823,14 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     match (self.find(args[0]), self.find(args[1])) {
                         (Int(len), Fun(f)) => ValuefulArray(Array::make(len, Fun(f)));
                         (Int(len), ValuefulArray(arr)) => ValuefulArray(Array::make(len, ValuefulArray(arr)));
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
                 "minimbt_create_float_array" => {
                     match (self.find(args[0]), self.find(args[1])) {
                         (Int(len), Double(elem)) => ValuefulArray(Array::make(len, Double(elem)));
-                        _ => Unknown
+                        _ => return Unknown
                     }
                 }
 
@@ -1004,7 +1015,10 @@ fn gather_capture(knf: Knf) -> Unit {
 
 pub fn opt_emulate(knf: Knf) -> Knf {
     let env = Emulator::new();
-    let _ = env.emulate(eliminate_main_call(knf), 0);
+    let result = env.emulate(eliminate_main_call(knf), 0);
+    if (result == Unknown) {
+        return knf;
+    }
     
     // To reflect the CallTailRec back on our KNF
     e.fundef.clear();
@@ -1017,8 +1031,12 @@ pub fn opt_emulate(knf: Knf) -> Knf {
 
     for k, v in e.fundef {
         if (k.name == Some("main")) {
-            let _ = env.emulate(v.body, 0);
-            let new = replace(v.body, env);
+            let body = v.body;
+            let _ = env.emulate(body, 0);
+            if (e.proceed == false) {
+                return knf;
+            }
+            let new = replace(body, env);
             e.fundef[k] = {
                 ..e.fundef[k].unwrap(),
                 body: new
@@ -1030,19 +1048,43 @@ pub fn opt_emulate(knf: Knf) -> Knf {
 }
 
 pub fn opt_remove_unreachable(knf: Knf) -> Knf {
+    if (e.proceed == false) {
+        return knf;
+    }
+
+    for k, _ in e.fundef {
+        if (k.name.unwrap().starts_with("init_")) {
+            return knf;
+        }
+    }
+
     for k, v in e.fundef {
         if (k.name == Some("main")) {
             e.used_names = @immut/hashset.T::new().add(k);
             get_used(v.body);
+
             let mut old_len = -1;
             let mut len = e.used_names.size();
 
             while (old_len != len) {
-                for k, v in e.fundef {
-                    if (e.used_names.contains(k)) {
-                        get_used(v.body);
+                fn update(knf) {
+                    match knf {
+                        Let(a, val, w) => {
+                            if (e.used_names.contains(a)) {
+                                get_used(val);
+                            }
+                            update(w);
+                        }
+                        LetRec({ name: f_name, body: syn, .. }, w) => {
+                            if (e.used_names.contains(f_name)) {
+                                get_used(syn);
+                            }
+                            update(w);
+                        }
+                        _ => ()
                     }
                 }
+                update(knf);
                 old_len = len;
                 len = e.used_names.size();
             }

@@ -54,8 +54,8 @@ pub struct Closure {
 } derive(Show)
 
 pub struct FuncDef {
-    name : Label
-    old_name : Name
+    mut name : Label
+    mut old_name : Name
     mut is_closure : Bool
     mut args : Array[Name]
     mut captured : Array[Name]
