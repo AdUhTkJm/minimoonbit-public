@@ -322,6 +322,16 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Add(a, b, c), Add(d, e, f)) => {
+                // add a, b, c; add d, b, c => add a, b, c; mv d, a
+                // Perhaps makes more optimization usable
+                if (b == e && c == f) {
+                    result.push(Add(a, b, c));
+                    result.push(Mv(d, a));
+                    i += 2;
+                    continue;
+                }
+            }
             (Ld(a, mem), Mv(b, c)) => {
                 // same goes for load
                 if (a == c) {
@@ -706,8 +716,9 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
             // We can't move these things out
             Sd(_) | Sw(_) | Bgt(_) | Bne(_) |
             Beq(_) | J(_) | Jalr(_) | Call(_) |
-            Mv(Arg(_), _) | Mv(A0, _) | Comment(_) |
-            Label(_) | Ld(_) | Lw(_) | Fld(_) | Fsd(_)=> {
+            Mv(Arg(_), _) | Mv(A0, _) | Mv(A1, _) | Comment(_) |
+            Label(_) | Ld(_) | Lw(_) | Fld(_) |
+            Fsd(_) | Mv(Fa0, _) => {
                 involved.push(x);
             }
 
@@ -716,19 +727,12 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
                 if ((used.rs1.is_empty() || unchanged.contains(used.rs1.unwrap())) &&
                     (used.rs2.is_empty() || unchanged.contains(used.rs2.unwrap()))) {
                     uninvolved.push(x);
-                    if (used.rd.is_empty().not()) {
-                        unchanged.push(used.rd.unwrap());
-                    }
                 } else {
                     involved.push(x);
                 }
             }
         }
     }
-    println("\n\n")
-    println("factored out:")
-    for x in uninvolved { println(x) };
-    println("\n")
 
     let mut regs: @immut/hashset.T[Reg] = @immut/hashset.T::new();
     let mut needed: @immut/hashset.T[Reg] = @immut/hashset.T::new();
@@ -926,8 +930,8 @@ pub fn opt_realloc(body: Array[RvAsm]) -> Array[RvAsm] {
 }
 
 
-/// Tries to delete instructions in a loop that can't be deleted
-/// by opt_remove_unread or opt_remove_write
+/// Tries to delete instructions in a loop,
+/// that can't be deleted by opt_remove_unread or opt_remove_write
 pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
     let range = identify_loop(body);
     if (range.is_empty()) {

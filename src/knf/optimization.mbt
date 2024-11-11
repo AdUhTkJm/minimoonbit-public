@@ -1152,8 +1152,8 @@ pub fn opt(knf: Knf) -> Knf {
     opt = knf
         |> opt_remove_unused
         |> opt_tail_rec
-        // opt_emulate is problematic
-        |> opt_remove_unreachable
+    
+    // opt_emulate and opt_remove_unreachable are wrong.
     
     return opt;
 }

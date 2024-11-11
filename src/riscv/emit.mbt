@@ -932,8 +932,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     // If no registers are saved and the only call is tail call
     // (special case of tail-call optimization)
-    let mut is_tail = all_used.size() == 0;
-    if (is_tail && opt.length() > 0) {
+    let mut is_tail = all_used.size() == 0 && opt.length() > 0;
+    if (is_tail) {
         let last = opt.length() - 1;
         for x in opt[:last] {
             match x {
@@ -949,7 +949,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         if (is_tail) {
             match opt[last] {
                 Call(l) => opt = [..opt[:last], J(l)];
-                _ => ()
+                _ => is_tail = false;
             }
         }
     }
