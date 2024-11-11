@@ -897,7 +897,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let post: Array[RvAsm] = [];
 
     let called = has_call(opt);
-    let mut all_used = @immut/hashset.from_array(if (called) { [Ra] } else { [] });
+    let mut all_used = @immut/hashset.new();
     for x in opt {
         let file = reg_used(x);
         if (file.rd.is_empty().not()) {
@@ -911,13 +911,47 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
+    let copy = @immut/hashset.T::from_iter(all_used.iter());
     let saved = [..reg_callee_saved_list, ..freg_callee_saved_list];
 
-    for r in all_used {
-        if (saved.contains(r).not() && r != Ra) {
+    all_used = @immut/hashset.T::new();
+
+    for r in copy {
+        if (saved.contains(r).not()) {
             continue;
         }
+        all_used = all_used.add(r);
+    }
 
+    // If no registers are saved and the only call is tail call
+    // (special case of tail-call optimization)
+    let mut is_tail = all_used.size() == 0;
+    if (is_tail && opt.length() > 0) {
+        let last = opt.length() - 1;
+        for x in opt[:last] {
+            match x {
+                Call(_) | Jalr(_) => { is_tail = false; break; }
+                _ => ()
+            }
+        }
+        match opt[last] {
+            Call(_) => ()
+            _ => is_tail = false;
+        }
+
+        if (is_tail) {
+            match opt[last] {
+                Call(l) => opt = [..opt[:last], J(l)];
+                _ => ()
+            }
+        }
+    }
+
+    if (called && is_tail.not()) {
+        all_used = all_used.add(Ra);
+    }
+
+    for r in all_used {
         if (is_intreg(r)) {
             pre.push(Sd(r, { base: Sp, offset: offset }));
             post.push(Ld(r, { base: Sp, offset: offset }));
@@ -966,14 +1000,21 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 
     offset += 8 * temp_used.size();
-
-    let full_body = [
-        ..pre,
-        ..called,
-        ..post
-    ];
-
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
+
+    let full_body =
+        if (offset > 0) {[
+            Addi(Sp, Sp, -offset),
+            ..pre,
+            ..called,
+            ..post,
+            Addi(Sp, Sp, offset),
+            Ret
+        ]} else if (is_tail) {
+            [..pre, ..called, ..post]
+        } else {
+            [..pre, ..called, ..post, Ret]
+        }
 
     AssemblyFunction :: {
         name:
@@ -984,12 +1025,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
                 fun.old_name.to_string()
             },
         is_extern: externs.contains(fun.name._),
-        body: [
-            Addi(Sp, Sp, -offset),
-            ..full_body,
-            Addi(Sp, Sp, offset),
-            Ret
-        ]
+        body: full_body
     }
 }
 
@@ -1032,6 +1068,9 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     }
 
     let arr = t.funcs.map(emit_fn);
+
+    kill_matmul();
+    kill_read();
 
     t_clear();
     return arr;

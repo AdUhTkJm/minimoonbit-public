@@ -534,7 +534,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
     let mut result: Constant = Unit;
     let mut current = knf;
     while (result != Unknown) {
-    if (e.counter > 0) {
+    if (e.counter > 5000000) {
         e.proceed = false;
         return Unknown;
     }
