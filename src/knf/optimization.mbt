@@ -266,8 +266,21 @@ fn side_effect_free(knf: Knf) -> Bool {
         LetTuple(_, _, w) =>
             side_effect_free(w)
         Put(_) => false
-        Var(x) => e.is_se_free[x] != Some(false)
-        Apply(x, _) => e.is_se_free[x] != Some(false)
+        Var(x) | Apply(x, _) => {
+            match typing[x] {
+                Some(Fun(_)) => {
+                    if (e.value.contains(x)) {
+                        match value_of(x) {
+                            Fun(v) => 
+                                e.is_se_free[v].unwrap();
+                            
+                            _ => false
+                        }
+                    } else { false }
+                }
+                _ => true
+            }
+        }
         _ => true
     }
 }
@@ -290,8 +303,21 @@ fn weak_side_effect_free(knf: Knf) -> Bool {
             weak_side_effect_free(val) && weak_side_effect_free(w)
         LetTuple(_, _, w) =>
             weak_side_effect_free(w)
-        Var(x) => e.wse_free[x] != Some(false)
-        Apply(x, _) => e.wse_free[x] != Some(false)
+        Var(x) | Apply(x, _) => {
+            match typing[x] {
+                Some(Fun(_)) => {
+                    if (e.value.contains(x)) {
+                        match value_of(x) {
+                            Fun(v) => 
+                                e.wse_free[v].unwrap();
+                            
+                            _ => false
+                        }
+                    } else { false }
+                }
+                _ => true
+            }
+        }
         _ => true
     }
 }
@@ -322,6 +348,14 @@ fn used(name: Name) -> Bool {
     return e.used_names.contains(name);
 }
 
+fn is_init(name: Name) -> Bool {
+    match name.name {
+        Some(n) => n.starts_with("init_") &&
+            n.ends_with("_" + name.slot.to_string());
+        None => false
+    }
+}
+
 // Removes all unused instances of a variable
 fn opt_remove_unused_(knf: Knf) -> Knf {
     match knf {
@@ -335,7 +369,7 @@ fn opt_remove_unused_(knf: Knf) -> Knf {
         LetTuple(x, arr, w) =>
             LetTuple(x, arr, opt_remove_unused_(w))
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
-            if (used(name).not() && name.name.unwrap().starts_with("init_").not()) {
+            if (used(name).not() && is_init(name).not()) {
                 opt_remove_unused_(w)
             } else {
                 LetRec({ name: name, ty: ty, args: args, body: opt_remove_unused_(syn) }, opt_remove_unused_(w))
@@ -534,7 +568,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
     let mut result: Constant = Unit;
     let mut current = knf;
     while (result != Unknown) {
-    if (e.counter > 5000000) {
+    if (e.counter > 1000000) {
         e.proceed = false;
         return Unknown;
     }
@@ -673,6 +707,10 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
 
                     if (e.fundef.contains(name).not()) {
                         @util.die("opt-knf: cannot call \{name}")
+                    }
+
+                    if (e.wse_free[name].unwrap().not()) {
+                        return Unknown;
                     }
 
                     let fdef = e.fundef[name].unwrap();
@@ -1052,8 +1090,7 @@ pub fn opt_remove_unreachable(knf: Knf) -> Knf {
 
     // Disable this, when we have init()
     for k, _ in e.fundef {
-        if (k.name.unwrap().starts_with("init_") &&
-            k.name.unwrap().ends_with("_" + k.slot.to_string())) {
+        if (is_init(k)) {
             return knf;
         }
     }
@@ -1085,6 +1122,7 @@ pub fn opt_remove_unreachable(knf: Knf) -> Knf {
                     }
                 }
                 update(knf);
+
                 old_len = len;
                 len = e.used_names.size();
             }
@@ -1097,6 +1135,15 @@ pub fn opt_remove_unreachable(knf: Knf) -> Knf {
 pub fn opt(knf: Knf) -> Knf {
     prepare_fundef(knf);
 
+    for k, _ in e.fundef {
+        e.is_se_free[k] = true;
+        e.wse_free[k] = true;
+    }
+
+    let mut opt = knf
+        |> opt_const_fold;
+
+    // Wait for it to stabilize
     for i = 0; i < 5; i = i + 1 {
         for k, v in e.fundef {
             e.is_se_free[k] = side_effect_free(v.body);
@@ -1104,12 +1151,11 @@ pub fn opt(knf: Knf) -> Knf {
         }
     }
 
-    let opt = knf
-        |> opt_const_fold
+    opt = knf
         |> opt_remove_unused
         |> opt_tail_rec
         // |> opt_emulate
-        |> opt_remove_unreachable;
+        // |> opt_remove_unreachable
     
     return opt;
 }
