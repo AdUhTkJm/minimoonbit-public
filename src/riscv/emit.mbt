@@ -872,7 +872,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let body = tidy(pseudobody) |> opt_loop_invariant(fun);
     t_clear();
     basic_regalloc(body, allowed, f_allowed);
-
     // Do optimizations
     let mut opt = body
             |> consolidate;
@@ -1004,6 +1003,14 @@ pub fn kill_matmul() -> Unit {
     }
 }
 
+pub fn kill_read() -> Unit {
+    for x in @closure.glob.val {
+        if (x.name == Some("read_int") || x.name == Some("read_char")) {
+            @util.die("emit: kill reads!")
+        }
+    }
+}
+
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.rcnt = @closure.t.cnt + 1;
     
@@ -1017,18 +1024,14 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
         t.merged = true;
         // No global variables:
         // just directly use main as entry
-        if (@closure.globvar.val.size() == 1) {
-            for x in t.funcs {
-                if (x.name == "main") {
-                    x.name = "minimbt_main";
-                }
+        for x in t.funcs {
+            if (x.name == "main") {
+                x.name = "minimbt_main";
             }
         }
     }
 
     let arr = t.funcs.map(emit_fn);
-
-    // kill_matmul();
 
     t_clear();
     return arr;

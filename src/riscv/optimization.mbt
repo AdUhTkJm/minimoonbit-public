@@ -17,7 +17,7 @@ fn defake(reg: Reg) -> Reg {
 
 fn deref(ref: Map[Reg, Reg], reg: Reg) -> Reg {
     match ref[reg] {
-        Some(t) => deref(ref, t)
+        Some(t) => if (reg == t) { t } else { deref(ref, t) }
         None => reg
     }
 }
@@ -389,6 +389,9 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
             }
             Slli(a, Zero, _) => {
                 result.push(Mv(a, Zero));
+            }
+            Add(a, b, Zero) | Add(a, Zero, b) => {
+                result.push(Mv(a, b));
             }
             J(a) => {
                 result.push(body[i]);

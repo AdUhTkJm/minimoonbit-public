@@ -534,7 +534,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
     let mut result: Constant = Unit;
     let mut current = knf;
     while (result != Unknown) {
-    if (e.counter > 5000000) {
+    if (e.counter > 0) {
         e.proceed = false;
         return Unknown;
     }
@@ -670,6 +670,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     let env = {
                         local: Map::from_iter(self.local.iter()),
                     };
+
                     if (e.fundef.contains(name).not()) {
                         @util.die("opt-knf: cannot call \{name}")
                     }
@@ -685,7 +686,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     });
 
                     if (known(Tuple(args.map(fn (x) { self.find(x) })))) {
-                        env.emulate(fdef.body, depth + 1)
+                        env.emulate(fdef.body, depth + 1);
                     } else {
                         return Unknown
                     }
@@ -1052,8 +1053,10 @@ pub fn opt_remove_unreachable(knf: Knf) -> Knf {
         return knf;
     }
 
+    // Disable this, when we have init()
     for k, _ in e.fundef {
-        if (k.name.unwrap().starts_with("init_")) {
+        if (k.name.unwrap().starts_with("init_") &&
+            k.name.unwrap().ends_with("_" + k.slot.to_string())) {
             return knf;
         }
     }
