@@ -1016,10 +1016,7 @@ fn gather_capture(knf: Knf) -> Unit {
 
 pub fn opt_emulate(knf: Knf) -> Knf {
     let env = Emulator::new();
-    let result = env.emulate(eliminate_main_call(knf), 0);
-    if (result == Unknown) {
-        return knf;
-    }
+    let _ = env.emulate(eliminate_main_call(knf), 0);
     
     // To reflect the CallTailRec back on our KNF
     e.fundef.clear();
@@ -1111,7 +1108,7 @@ pub fn opt(knf: Knf) -> Knf {
         |> opt_const_fold
         |> opt_remove_unused
         |> opt_tail_rec
-        |> opt_emulate
+        // |> opt_emulate
         |> opt_remove_unreachable;
     
     return opt;
