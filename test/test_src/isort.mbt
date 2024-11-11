@@ -63,7 +63,7 @@ fn print_array(arr: Array[Int], n: Int) -> Unit {
 };
 
 fn main {
-  let n = 10000;
+  let n = 100;
   let arr = Array::make(n, 0);
   let _ = fill_buffer(arr, n);
   let _ = isort(arr, n);

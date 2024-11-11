@@ -104,8 +104,10 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
 
     // Reached the end; store_write() for every register
     // so that registers written once and never read will be eliminated
-    for x in [..reg_allocatable_list, ..freg_allocatable_list] {
-        store_write(Some(x), body.length());
+    for x in [..reg_all_list, ..freg_all_list] {
+        if (ignore_list.contains(x).not()) {
+            store_write(Some(x), body.length());
+        }
     }
 
     let opt = [];
@@ -406,7 +408,7 @@ pub fn opt_remove_identical(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
-            Nop => ()
+            Nop | Comment(_) => ()
             _ => result.push(body[i])
         }
         i += 1;
@@ -422,6 +424,7 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
     let ref: Map[Reg, Reg] = {};
     let label: Map[Reg, String] = {};
     let imms: Map[Reg, String] = {};
+    let called = has_call(body);
 
     while (i < body.length()) {
         let file = reg_used(body[i]);
@@ -461,10 +464,29 @@ pub fn opt_inline_var(body: Array[RvAsm]) -> Array[RvAsm] {
         match body[i] {
             Mv(a, b) | FmvD(a, b) => { ref[a] = b; label.remove(a); imms.remove(a); }
 
-            J(_) | Label(_) => {
+            J(_) => {
                 ref.clear();
                 label.clear();
                 imms.clear();
+            }
+
+            Label(t) => {
+                if (t.ends_with("_tailrec").not()) {
+                    ref.clear();
+                    label.clear();
+                    imms.clear();
+                } else if (called) {
+                    let copy = Map::from_iter(ref.iter());
+                    for k, v in copy {
+                        if (arg_list.contains(k) || arg_list.contains(v)) {
+                            ref.remove(k);
+                        }
+                    }
+                    for x in arg_list {
+                        label.remove(x);
+                        imms.remove(x);
+                    }
+                }
             }
 
             Call(_) | Jalr(_) => {
@@ -524,24 +546,7 @@ fn identify_loop(body: Array[RvAsm]) -> Option[(Int, Int)] {
     if (end == body.length()) {
         return None;
     }
-
-    return Some((begin, end));
-}
-
-
-/// If something is irrelevant with the loop variable
-/// then put these things outside the loop
-
-/// Note: this function expects unconsolidated assembly
-/// (more like a 3-address IR)
-pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
-    let range = identify_loop(body);
-    if (range == None) {
-        return body;
-    }
-
-    let (begin, end) = range.unwrap();
-
+    
     // Verify only one path does tail call;
     // Don't handle things like
     // f() { if (a) { 1 } else { if (..) { f() } else { f() } } }
@@ -551,24 +556,40 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
     while (i < body.length()) {
         match body[i] {
             J(a) => if (a._.ends_with("_tailrec")) {
-                return body;
+                return None;
             }
             _ => ()
         }
         i += 1;
     }
 
-    // Now verify the invariants
-    // At this stage, everything is immutable
-    // So checking rs1 and rs2 should be enough
+    return Some((begin, end));
+}
 
-    i = begin + 1;
+
+/// If something is always a constant literal in a loop
+/// then put these things outside the loop
+
+/// Note: this function expects unconsolidated assembly
+/// (more like a 3-address IR)
+pub fn opt_loop_constant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[RvAsm] {
+    let range = identify_loop(body);
+    if (range == None) {
+        return body;
+    }
+
+    let (begin, end) = range.unwrap();
+
 
     // Instructions involved in the loop
     let involved = [];
     // Instructions independent of the loop
     let uninvolved = [];
+
+    // Preserve registers (assign them to themselves at the end of loop)
+    // in order to make basic_regalloc work
     let reg_preserve = [];
+
     let args = fun.args.map(fn (x) { Fake(x) });
     let inv_regs: @immut/hashset.T[Reg] = @immut/hashset.T::from_array(
         if (has_call(body)) {
@@ -587,6 +608,7 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
         }
     }
 
+    let mut i = begin + 1;
     while (i < end) {
         match body[i] {
             // In opt_inline_loopvar we test for these
@@ -613,19 +635,23 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
         i += 1;
     }
 
+    let mut regs: @immut/hashset.T[Reg] = @immut/hashset.T::new();
     for x in uninvolved {
         let used = reg_used(x);
         if (used.rd.is_empty().not()) {
-            reg_preserve.push(Mv(used.rd.unwrap(), used.rd.unwrap()));
+            regs = regs.add(used.rd.unwrap());
         }
         if (used.rs1.is_empty().not()) {
-            reg_preserve.push(Mv(used.rs1.unwrap(), used.rs1.unwrap()));
+            regs = regs.add(used.rs1.unwrap());
         }
         if (used.rs2.is_empty().not()) {
-            reg_preserve.push(Mv(used.rs2.unwrap(), used.rs2.unwrap()));
+            regs = regs.add(used.rs2.unwrap());
         }
     }
 
+    for x in regs {
+        reg_preserve.push(Mv(x, x));
+    }
 
     let result = Array::from_iter(body[:begin].iter()) +
         uninvolved + [Label("\{fun.old_name}_tailrec")] + involved + reg_preserve +
@@ -634,7 +660,116 @@ pub fn opt_loop_invariant(body: Array[RvAsm], fun: @closure.FuncDef) -> Array[Rv
     return result;
 }
 
-/// Inlines loop invariants identified by opt_loop_invariant
+/// Generalizes the previous function (opt_loop_constant)
+/// and tries to identify more invariants
+pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
+    let range = identify_loop(body);
+    if (range.is_empty()) {
+        return body;
+    }
+
+    let (begin, end) = range.unwrap();
+    let mut reload = begin;
+
+    // Find the place where we reload arguments
+    // i.e. places where we change loop variables
+    while (reload < end) {
+        match body[reload] {
+            Comment("__reload_args") => break;
+            _ => ()
+        }
+        reload += 1;
+    }
+
+    // Identify all changed/unchanged loop variables
+    let changed = [];
+    let unchanged = [];
+    for x in body[reload:end] {
+        match x {
+            Mv(a, b) => {
+                if (a != b) {
+                    changed.push(a);
+                } else {
+                    unchanged.push(a);
+                }
+            }
+            _ => ()
+        }
+    }
+
+    // Each unchanged variable can be viewed as a constant;
+    // we can extract everything related to them
+    let uninvolved = [];
+    let involved = [];
+    for x in body[begin:reload] {
+        match x {
+            // We can't move these things out
+            Sd(_) | Sw(_) | Bgt(_) | Bne(_) |
+            Beq(_) | J(_) | Jalr(_) | Call(_) |
+            Mv(Arg(_), _) | Mv(A0, _) | Comment(_) |
+            Label(_) | Ld(_) | Lw(_) | Fld(_) | Fsd(_)=> {
+                involved.push(x);
+            }
+
+            _ => {
+                let used = reg_used(x);
+                if ((used.rs1.is_empty() || unchanged.contains(used.rs1.unwrap())) &&
+                    (used.rs2.is_empty() || unchanged.contains(used.rs2.unwrap()))) {
+                    uninvolved.push(x);
+                    if (used.rd.is_empty().not()) {
+                        unchanged.push(used.rd.unwrap());
+                    }
+                } else {
+                    involved.push(x);
+                }
+            }
+        }
+    }
+    println("\n\n")
+    println("factored out:")
+    for x in uninvolved { println(x) };
+    println("\n")
+
+    let mut regs: @immut/hashset.T[Reg] = @immut/hashset.T::new();
+    let mut needed: @immut/hashset.T[Reg] = @immut/hashset.T::new();
+    let reg_preserve = [];
+    
+    for x in uninvolved {
+        let used = reg_used(x);
+        if (used.rd.is_empty().not()) {
+            regs = regs.add(used.rd.unwrap());
+        }
+        if (used.rs1.is_empty().not()) {
+            regs = regs.add(used.rs1.unwrap());
+        }
+        if (used.rs2.is_empty().not()) {
+            regs = regs.add(used.rs2.unwrap());
+        }
+    }
+
+    for x in involved {
+        let used = reg_used(x);
+        if (used.rd.is_empty().not()) {
+            needed = needed.add(used.rd.unwrap());
+        }
+        if (used.rs1.is_empty().not()) {
+            needed = needed.add(used.rs1.unwrap());
+        }
+        if (used.rs2.is_empty().not()) {
+            needed = needed.add(used.rs2.unwrap());
+        }
+    }
+
+    for x in regs {
+        if (needed.contains(x)) {
+            reg_preserve.push(Mv(x, x));
+        }
+    }
+
+    return [..body[:begin], ..uninvolved, ..involved, ..reg_preserve, ..body[reload:]];
+}
+
+/// Inlines loop invariants identified by opt_loop_constant
 pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
     let range = identify_loop(body);
     let mut new_body = body;
@@ -807,7 +942,7 @@ pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
     // Copy a loop body
     let dup = [
         ..middle,
-        Comment("separate"),
+        Comment("__separate"),
         ..middle,
     ]
     
@@ -817,7 +952,7 @@ pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
     let middle_opt = [];
     for x in opt {
         match x {
-            Comment(_) => break;
+            Comment("__separate") => break;
             x => middle_opt.push(x);
         }
     }

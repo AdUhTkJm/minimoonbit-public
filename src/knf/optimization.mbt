@@ -1069,9 +1069,7 @@ pub fn opt_emulate(knf: Knf) -> Knf {
         if (k.name == Some("main")) {
             let body = v.body;
             let _ = env.emulate(body, 0);
-            if (e.proceed == false) {
-                return knf;
-            }
+
             let new = replace(body, env);
             e.fundef[k] = {
                 ..e.fundef[k].unwrap(),
@@ -1154,8 +1152,8 @@ pub fn opt(knf: Knf) -> Knf {
     opt = knf
         |> opt_remove_unused
         |> opt_tail_rec
-        // |> opt_emulate
-        // |> opt_remove_unreachable
+        // opt_emulate is problematic
+        |> opt_remove_unreachable
     
     return opt;
 }

@@ -511,8 +511,10 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         CallTailRec(name, args) => {
             // Guaranteed that name is directly callable
-
             let f = find_func(name).unwrap();
+
+            // Used in optimization passes
+            asm.push(Comment("__reload_args"));
 
             let _ = args.mapi(fn (i, x) {
                 asm.push(Mv(Fake(f.args[i]), Fake(x)));
@@ -869,9 +871,14 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     basic_regalloc(pseudobody, allowed, f_allowed);
 
     // Prologue and Epilogue is dealt with at output()
-    let body = tidy(pseudobody) |> opt_loop_invariant(fun);
+    let body = tidy(pseudobody)
+        |> opt_loop_constant(fun)
+        |> opt_loop_invariant;
+
     t_clear();
     basic_regalloc(body, allowed, f_allowed);
+    for x in body { println(x) };
+
     // Do optimizations
     let mut opt = body
             |> consolidate;
