@@ -716,10 +716,18 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
             // We can't move these things out
             Sd(_) | Sw(_) | Bgt(_) | Bne(_) |
             Beq(_) | J(_) | Jalr(_) | Call(_) |
-            Mv(Arg(_), _) | Mv(A0, _) | Mv(A1, _) | Comment(_) |
-            Label(_) | Ld(_) | Lw(_) | Fld(_) |
-            Fsd(_) | Mv(Fa0, _) => {
+            Comment(_) | Label(_) | Ld(_) | Lw(_) |
+            Fld(_) | Fsd(_) => {
                 involved.push(x);
+            }
+
+            Mv(a, b) => {
+                if (is_fake(a) && is_fake(b) && unchanged.contains(b)) {
+                    unchanged.push(a);
+                    uninvolved.push(x);
+                } else {
+                    involved.push(x);
+                }
             }
 
             _ => {
@@ -727,6 +735,9 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
                 if ((used.rs1.is_empty() || unchanged.contains(used.rs1.unwrap())) &&
                     (used.rs2.is_empty() || unchanged.contains(used.rs2.unwrap()))) {
                     uninvolved.push(x);
+                    if (used.rd.is_empty().not()) {
+                        unchanged.push(used.rd.unwrap());
+                    }
                 } else {
                     involved.push(x);
                 }
@@ -770,6 +781,12 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
         }
     }
 
+    println("\n\nfactored out:")
+    for x in uninvolved {
+        println(x);
+    }
+    println("\n")
+
     return [..body[:begin], ..uninvolved, ..involved, ..reg_preserve, ..body[reload:]];
 }
 
@@ -791,9 +808,15 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
             La(a, Label(x)) | Li(a, x)=> {
                 invar[a] = x;
             }
-            _ => ()
+            _ => {
+                let used = reg_used(x);
+                if (used.rd.is_empty().not()) {
+                    invar.remove(used.rd.unwrap());
+                }
+            }
         }
     }
+    println(invar);
 
     let middle = [];
     for x in body[begin: end] {
@@ -845,7 +868,7 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
             }
             Jalr(a) => {
                 if (invar.contains(a)) {
-                    middle.push(J(invar[a].unwrap()));
+                    middle.push(Call(invar[a].unwrap()));
                     continue;
                 }
             }
