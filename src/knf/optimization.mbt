@@ -568,7 +568,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
     let mut result: Constant = Unit;
     let mut current = knf;
     while (result != Unknown) {
-    if (e.counter > 1000000) {
+    if (e.counter > 3000000) {
         e.proceed = false;
         return Unknown;
     }
@@ -710,6 +710,7 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                     }
 
                     if (e.wse_free[name].unwrap().not()) {
+                        e.proceed = false;
                         return Unknown;
                     }
 
@@ -738,6 +739,11 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
                 Closure(name, _) => {
                     if (e.fundef.contains(name).not()) {
                         @util.die("opt-knf: cannot call \{name}")
+                    }
+
+                    if (e.wse_free[name].unwrap().not()) {
+                        e.proceed = false;
+                        return Unknown;
                     }
 
                     let fdef = e.fundef[name].unwrap();
@@ -860,7 +866,6 @@ pub fn Emulator::emulate(self: Emulator, knf: Knf, depth: Int) -> Constant {
 
                 "minimbt_create_ptr_array" => {
                     match (self.find(args[0]), self.find(args[1])) {
-                        (Int(len), Fun(f)) => ValuefulArray(Array::make(len, Fun(f)));
                         (Int(len), ValuefulArray(arr)) => ValuefulArray(Array::make(len, ValuefulArray(arr)));
                         _ => return Unknown
                     }
@@ -1082,10 +1087,6 @@ pub fn opt_emulate(knf: Knf) -> Knf {
 }
 
 pub fn opt_remove_unreachable(knf: Knf) -> Knf {
-    if (e.proceed == false) {
-        return knf;
-    }
-
     // Disable this, when we have init()
     for k, _ in e.fundef {
         if (is_init(k)) {
@@ -1152,6 +1153,8 @@ pub fn opt(knf: Knf) -> Knf {
     opt = knf
         |> opt_remove_unused
         |> opt_tail_rec
+        |> opt_emulate
+        |> opt_remove_unused
     
     // opt_emulate and opt_remove_unreachable are wrong.
     

@@ -769,7 +769,7 @@ pub fn emit_externals(logger: Logger) -> Unit {
         for x in const[1:] {
             logger.write_string(match x {
                 Int(x) => ", " + x.to_string()
-                Double(x) => "," + x.to_string()
+                Double(x) => ", " + x.to_string()
                 _ => @util.die("emit: bad external array: \{const}")
             });
         }
@@ -1037,6 +1037,15 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 }
 
+pub fn kill() -> Unit {
+    for _, v in @knf.typing {
+        match v {
+            Fun(_, Fun(_)) => @util.die("kill")
+            _ => ()
+        }
+    }
+}
+
 pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     t.rcnt = @closure.t.cnt + 1;
     
@@ -1058,6 +1067,7 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     }
 
     let arr = t.funcs.map(emit_fn);
+    
 
     t_clear();
     return arr;
