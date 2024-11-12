@@ -572,7 +572,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 }
 
                 asm.push(Mv(result, S9));
-                asm.push(Addi(S9, S9,(8 + capsize)));
+                asm.push(Addi(S9, S9, (8 + capsize)));
                 t.mallocked = true;
 
                 return result;
@@ -1039,8 +1039,8 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
 pub fn kill() -> Unit {
     for _, v in @knf.typing {
-        match v {
-            Fun(_, Fun(_)) => @util.die("kill")
+        match @typing.real(v) {
+            Array(Fun(_)) => @util.die("kill")
             _ => ()
         }
     }
@@ -1067,7 +1067,6 @@ pub fn emit(program: @closure.Program) -> Array[AssemblyFunction] {
     }
 
     let arr = t.funcs.map(emit_fn);
-    
 
     t_clear();
     return arr;

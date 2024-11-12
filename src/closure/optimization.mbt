@@ -372,16 +372,19 @@ fn reform(expr: Expr) -> Expr {
     }
 }
 
+fn is_function_type(ty: Type) -> Bool {
+    match @typing.real(ty) {
+        Fun(_) => true
+        Array(t) => is_function_type(t)
+        Tuple(arr) => arr.fold(~init = false, fn (total, x) { is_function_type(x) || total })
+        _ => false
+    }
+}
+
 fn check_noflee(expr: Expr) -> Bool {
     match expr {
         Let(a, val, w) =>
-            check_noflee(val) && check_noflee(w) && match @knf.typing[a] {
-                Some(Fun(_)) => false
-                Some(Array(Fun(_))) => false
-                Some(Array(Array(Fun(_)))) => false
-                // Indeed all arrays of functions are not good, but I'm lazy to reform into recursion
-                _ => true
-            }
+            check_noflee(val) && check_noflee(w) && is_function_type(@knf.typing[a].unwrap()).not()
         LetTuple(arr, _, w) =>
             arr.fold(~init = true, fn (total, x) { total && is_function(x).not() }) && check_noflee(w)
         IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
@@ -392,6 +395,11 @@ fn check_noflee(expr: Expr) -> Bool {
 
 fn check_eligibility(x: FuncDef) -> Bool {
     let f_name = x.old_name;
+
+    // Non-closures don't need a change
+    if (x.is_closure.not()) {
+        return false;
+    }
 
     // global functions can't be closure
     if (t.inside.contains(f_name).not()) {
@@ -407,18 +415,18 @@ fn check_eligibility(x: FuncDef) -> Bool {
 
     let no_flee =
         match type_of(father) {
-            Fun(_, Fun(_)) => false
-            _ => true
+            Fun(_, ret) => is_function_type(ret).not()
+            _ => @util.die("opt-closure: \{father} is not a function")
         }
 
     let no_fn_arg =
         x.captured.fold(~init = true, fn (total, x) { total && match @knf.typing[x] {
-            Some(Fun(_)) => false
-            _ => true
+            Some(t) => is_function_type(t).not()
+            _ => @util.die("opt-closure: \{x} is of unknown type")
         } });
 
     let result = no_flee && no_fn_arg && father_able && check_noflee(x.body) && 
-            x.args.length() + x.captured.length() <= 8;
+            x.args.length() + x.captured.length() < 8;
     return result;
 }
 

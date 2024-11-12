@@ -259,6 +259,12 @@ pub fn initial(prog: @knf.Knf) -> Program {
         t.prog.fundefs = [..t.prog.fundefs[t.prog.fundefs.length() / 2:]];
     }
 
+    for x in t.prog.fundefs {
+        println(x.name);
+        println(x.captured);
+        println("")
+    }
+
     return t.prog;
 }
 
@@ -275,7 +281,8 @@ pub fn closure(prog: @knf.Knf) -> Program {
     opt = opt
         |> opt_remove_unused
         |> opt_cse
-        |> opt_remove_unused;
+        |> opt_remove_unused
+        // |> opt_remove_closure;
 
 
     return opt;
