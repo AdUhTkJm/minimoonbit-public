@@ -393,7 +393,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             t.labelcount += 1;
             
             let ty: @types.Type = match typeof(a) {
-                Int => Int
+                Int | Bool => Int
                 Double => Double
                 _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
             };
@@ -424,7 +424,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             t.labelcount += 1;
 
             let ty: @types.Type = match typeof(a) {
-                Int => Int
+                Int | Bool => Int
                 Double => Double
                 _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
             };
@@ -608,17 +608,19 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
     }
 }
 
-// Returns the name of a function
-fn name_fn(f_name: @types.Name) -> String {
+/// Returns the name of a function
+pub fn name_fn(f_name: @types.Name) -> String {
     if (externs.contains(f_name.name.unwrap())) {
         "minimbt_" + f_name.name.unwrap()
+    } else if (f_name.name.unwrap() == "main") {
+        return "main"
     } else {
         f_name.to_string()
     }
 }
 
 
-// If referencing global things, make it correct
+/// If referencing global things, make it correct
 fn tidy(asm: Array[RvAsm]) -> Array[RvAsm] {
     let result = [];
     for i = 0; i < asm.length(); i = i + 1 {
@@ -877,7 +879,6 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
 
     t_clear();
     basic_regalloc(body, allowed, f_allowed);
-    for x in body { println(x) };
 
     // Do optimizations
     let mut opt = body

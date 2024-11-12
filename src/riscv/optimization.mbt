@@ -30,11 +30,12 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
     let last_written: Map[Reg, Int] = Map::new();
     let mut used_labels: @immut/hashset.T[Label] = @immut/hashset.T::new();
     let mut to_delete: @immut/hashset.T[Int] = @immut/hashset.T::new();
-    let ignore_list = if (has_call(body)) {
-        arg_list
-    } else {
-        [A0, Fa0]
-    };
+    let ignore_list =
+        if (has_call(body)) {
+            arg_list
+        } else {
+            [A0, Fa0]
+        };
 
     fn store_write(key: Option[Reg], v: Int) -> Unit {
         if (key.is_empty() || ignore_list.contains(key.unwrap())) {
@@ -799,12 +800,6 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
             reg_preserve.push(Mv(x, x));
         }
     }
-
-    println("\n\nfactored out:")
-    for x in uninvolved {
-        println(x);
-    }
-    println("\n")
 
     return [..body[:begin], ..uninvolved, ..involved, ..reg_preserve, ..body[reload:]];
 }

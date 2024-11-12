@@ -276,7 +276,6 @@ pub fn closure(prog: @knf.Knf) -> Program {
         |> opt_remove_unused
         |> opt_cse
         |> opt_remove_unused;
-        // opt_remove_closure is wrong.
 
 
     return opt;

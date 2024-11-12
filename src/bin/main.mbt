@@ -147,7 +147,7 @@ fn CompileStatus::output(self : CompileStatus, json : Bool) -> String {
             Closure => self.opt_knf.unwrap().to_string()
             Asm => self.closure_ir.unwrap().to_string()
             Finished => if (js.val) {
-                @js.emit(self.ast.unwrap())
+                @js.emit(self.knf.unwrap())
             } else if (wasm.val) {
                 @wasm.process(self.closure_ir.unwrap());
             } else {
