@@ -313,6 +313,15 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Addi(a, b, c), Mv(d, e)) => {
+                // same goes for addi
+                if (a == e) {
+                    result.push(Addi(d, b, c));
+                    result.push(Mv(a, d));
+                    i += 2;
+                    continue;
+                }
+            }
             (Sub(a, b, c), Mv(d, e)) => {
                 // same goes for sub
                 if (a == e) {
@@ -328,6 +337,16 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                 if (b == e && c == f) {
                     result.push(Add(a, b, c));
                     result.push(Mv(d, a));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Ld(a, mem), Ld(b, mem2)) => {
+                // ld a, 0(t); ld b, 0(t) => ld a, 0(t); mv b, a
+                // This requires a != t
+                if (mem == mem2 && mem2.base != a) {
+                    result.push(Ld(a, mem));
+                    result.push(Mv(b, a));   
                     i += 2;
                     continue;
                 }
@@ -816,7 +835,6 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
             }
         }
     }
-    println(invar);
 
     let middle = [];
     for x in body[begin: end] {

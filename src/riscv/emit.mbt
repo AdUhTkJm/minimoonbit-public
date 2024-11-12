@@ -249,7 +249,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         Div(a, b) => {
             let r = fake(Int);
-            asm.push(Div(r, Fake(a), Fake(b)));
+            asm.push(Divw(r, Fake(a), Fake(b)));
             r;
         }
         LShift(a, i) => {
@@ -259,7 +259,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
         }
         Mul(a, b) => {
             let r = fake(Int);
-            asm.push(Mul(r, Fake(a), Fake(b)));
+            asm.push(Mulw(r, Fake(a), Fake(b)));
             r;
         }
         FAdd(a, b) => {

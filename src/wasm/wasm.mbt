@@ -213,7 +213,7 @@ fn emit_expr(expr: @closure.Expr) -> Wasm {
             let a_ = e.fake();
             asm.push(LocalSet(a_, var(a)));
             asm.push(LocalSet(r, 
-            DirectOutput("(call $reintp_f (f64.mul (f64.const 0) (call $reintp_i (local.get $\{a_}))))")));
+            DirectOutput("(call $reintp_f (f64.sub (f64.const 0) (call $reintp_i (local.get $\{a_}))))")));
             Var(r);
         }
         BNeg(a) => {
