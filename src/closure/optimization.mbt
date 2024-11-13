@@ -389,6 +389,17 @@ fn check_noflee(expr: Expr) -> Bool {
             arr.fold(~init = true, fn (total, x) { total && is_function(x).not() }) && check_noflee(w)
         IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
             check_noflee(body) && check_noflee(otherwise)
+        Call(f, args) => {
+            let i = t.prog.fundefs.search_by(fn (x) { x.old_name == f });
+            if (i.is_empty()) {
+                false
+            } else {
+                let ff = t.prog.fundefs[i.unwrap()];
+                ff.is_closure.not() && is_function_type(Tuple(args.map(type_of))).not() &&
+                e.transformed.contains(f).not()
+            }
+        }
+        CallClosure(_) => false
         _ => true
     }
 }
@@ -401,9 +412,11 @@ fn check_eligibility(x: FuncDef) -> Bool {
         return false;
     }
 
-    // global functions can't be closure
-    if (t.inside.contains(f_name).not()) {
-        return true;
+    // Defined in "let ... = { fn f() {} }";
+    // this is not global but not inside any function
+    // We can't optimize this
+    if (glob.val.contains(f_name).not() && t.inside.contains(f_name).not()) {
+        return false;
     }
 
     let mut father_able = true;
