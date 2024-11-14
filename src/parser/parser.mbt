@@ -101,11 +101,11 @@ fn primary() -> @types.Syntax {
             tin.expect(RPar);
             Array(a1, a2)
         }
-        //LBrace => {
-        //    let inner = stmt();
-        //    tin.expect(RBrace);
-        //    inner
-        //}
+        LBrace => {
+            let inner = stmt();
+            tin.expect(RBrace);
+            inner
+        }
         z => @util.die("Unexpected token \{z} in primary() with surrouding \{tin.surround()}")
     }
 }
