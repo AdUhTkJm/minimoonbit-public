@@ -1,8 +1,6 @@
 pub fn knf_max_counter(knf : Knf) -> Int {
     match knf {
-        Unit => 0
-        Int(_) => 0
-        Double(_) => 0
+        Unit | Int(_) | Double(_) | ConstTuple(_) | ExternalArray(_) => 0
         Neg(x) => x.slot
         Add(x, y) => @math.maximum(x.slot, y.slot)
         Sub(x, y) => @math.maximum(x.slot, y.slot)
@@ -63,5 +61,9 @@ pub fn knf_max_counter(knf : Knf) -> Int {
         Put(x, y, z) => @math.maximum(x.slot, @math.maximum(y.slot, z.slot))
         ExternalFunctionApplication(_, xs) =>
             xs.map(fn(x) { x.slot }).fold(init=0, fn(a, b) { @math.maximum(a, b) })
+        
+        Match(matcher, branches) => {
+            @math.maximum(matcher.slot, branches.fold(~init = 0, fn (total, x) { @math.maximum(total, knf_max_counter(x.exec)) }));
+        }
     }
 }

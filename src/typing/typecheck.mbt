@@ -1,3 +1,28 @@
+pub struct TypingEnv {
+    // Lookup table from String to enums
+    mut enums: Map[String, Array[@types.EnumEntry]];
+}
+
+pub fn TypingEnv::new() -> TypingEnv {
+    return TypingEnv :: {
+        enums: Map::new(),
+    }
+}
+
+pub let e: TypingEnv = TypingEnv::new();
+
+pub fn get_enum(ty: @types.Type) -> Array[@types.EnumEntry] {
+    match real(ty) {
+        Enum(s) => {
+            if (e.enums.contains(s).not()) {
+                @util.die("typing: \{ty} is not an enum")
+            }
+            e.enums[s].unwrap();
+        }
+        _ => @util.die("typing: \{ty} is not an enum")
+    }
+}
+
 pub fn real(ty: @types.Type) -> @types.Type {
     match ty {
         Var(z) => {
@@ -8,6 +33,13 @@ pub fn real(ty: @types.Type) -> @types.Type {
                     t;
                 }
                 None => ty
+            }
+        }
+        Type(z) => {
+            if (e.enums.contains(z)) {
+                Enum(z);
+            } else {
+                @util.die("typing: cannot identify type \{z}");
             }
         }
         t => t
@@ -25,7 +57,7 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
                 ();
             }
             if (x.val != None && y.val != None && real(x.val.unwrap()).weak_equal(real(y.val.unwrap())).not()) {
-                @util.die("Type mismatch between \{x.val.unwrap()} (inferred) and \{y.val.unwrap()} (real)");
+                @util.die("typing: type mismatch: \{x.val.unwrap()} (inferred); \{y.val.unwrap()} (real)");
             }
             if (x.val == None && y.val != None) {
                 x.val = y.val;
@@ -36,7 +68,7 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
         }
         (Var(x), y) | (y, Var(x)) => {
             if (x.val != None && real(t1).weak_equal(real(y)).not()) {
-                @util.die("Type mismatch between \{x.val.unwrap()} (inferred) and \{y} (real)");
+                @util.die("typing: type mismatch: \{x.val.unwrap()} (inferred); \{y} (real)");
             }
             if (x.val == None) {
                 x.val = Some(y);
@@ -46,7 +78,7 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
         }
         (Fun(a, b), Fun(c, d)) => {
             if (a.length() != c.length()) {
-                @util.die("Type mismatch between \{a} and \{c}");
+                @util.die("typing: type mismatch: \{a}; \{c}");
             }
             ignore(a.mapi(fn (i, z) { unify(z, c[i]) }));
             unify(b, d);
@@ -56,11 +88,11 @@ fn unify(t1: @types.Type, t2: @types.Type) -> Unit {
         }
         (Tuple(a), Tuple(b)) => {
             if (a.length() != b.length()) {
-                @util.die("Type mismatch between \{a} and \{b}");
+                @util.die("typing: type mismatch: \{a}; \{b}");
             }
             ignore(a.mapi(fn (i, z) { unify(z, b[i]) }));
         }
-        _ => @util.die("Type mismatch: \{t1} and \{t2}");
+        _ => @util.die("typing: type mismatch: \{t1}; \{t2}");
     }
 }
 
@@ -139,21 +171,63 @@ pub fn infer(ast: @types.Syntax, env: @immut/hashmap.T[String, @types.Type], ~gl
             unify(ty, Fun(args.map(fn (z) { z.1; }), infer(syn, env_local)));
             infer(w, env_new, ~global = global);
         }
-        Let((name, ty), s1, s2) => {
+        Let((name, ty), val, w) => {
             if (global) {
                 eglob[name] = ty;
             }
             let env_new = env.add(name, ty);
-            unify(ty, infer(s1, env_new));
-            infer(s2, env_new, ~global = global);
+            unify(ty, infer(val, env_new));
+            infer(w, env_new, ~global = global);
         }
-        LetTuple(arr, s1, s2) => {
-            unify(Tuple(arr.map(fn (z) { z.1 })), infer(s1, env));
+        LetTuple(arr, val, w) => {
+            unify(Tuple(arr.map(fn (z) { z.1 })), infer(val, env));
             let mut env_new = env;
             for z in arr {
                 env_new = env_new.add(z.0, z.1);
             }
-            infer(s2, env_new);
+            infer(w, env_new);
+        }
+        Enum(name, entries, w) => {
+            let mut env_new = env;
+
+            // Each constructor is viewed as a function
+            for z in entries {
+                env_new = env_new.add(z.name, Fun(z.binders, Enum(name)))
+            }
+
+            e.enums[name] = entries;
+            infer(w, env_new);
+        }
+        Match(matcher, branches) => {
+            let ty = real(infer(matcher, env));
+            let ret_ty: @types.Type = Var(Ref::new(None));
+
+            match ty {
+                Enum(s) => {
+                    if (e.enums.contains(s).not()) {
+                        @util.die("typing: no such enum: \{s}");
+                    }
+                    let en = e.enums[s].unwrap();
+                    for x in branches {
+                        let i = en.search_by(fn (z) { z.name == x.lead });
+                        if (i.is_empty()) {
+                            @util.die("typing: enum \{s} does not have constructor \{x.lead}");
+                        }
+                        let entry = en[i.unwrap()];
+                        if (entry.binders.length() != x.binders.length()) {
+                            @util.die("typing: incorrect binder for constructor \{x.lead}")
+                        }
+                        let mut env_new = env;
+                        let _ = entry.binders.mapi(fn (i, z) {
+                            let y = x.binders[i];
+                            env_new = env_new.add(y, z);
+                        });
+                        unify(ret_ty, infer(x.exec, env_new));
+                    }
+                }
+                _ => @util.die("typing: matching non-enum: \{ty}");
+            }
+            ret_ty;
         }
         Prim(l, r, _, ~kind = _) as q => {
             let tl = infer(l, env);

@@ -105,20 +105,20 @@ fn CompileStatus::step(self : CompileStatus) -> Bool {
             if (wasm.val || js.val) {
                 self.opt_knf = Some(knf);
             } else {
-                self.opt_knf = Some(@knf.opt(knf))
+                self.opt_knf = Some(@knf.opt(knf));
             }
         }
         Closure => {
             if (wasm.val || closure_interpreter.val) {
                 self.closure_ir = Some(@closure.initial(self.opt_knf.unwrap()));
             } else {
-                self.closure_ir = Some(@closure.closure(self.opt_knf.unwrap()))
+                self.closure_ir = Some(@closure.closure(self.opt_knf.unwrap()));
             }
         }
         Asm => {
             if (js.val.not() && wasm.val.not()) {
-                let real_asm = @riscv.emit(self.closure_ir.unwrap())
-                self.asm = Some(real_asm)
+                let real_asm = @riscv.emit(self.closure_ir.unwrap());
+                self.asm = Some(real_asm);
             }
         }
         Finished => ()

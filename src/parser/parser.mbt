@@ -43,6 +43,15 @@ fn Tstream::consume(self: Tstream) -> @lex.Token {
     return t;
 }
 
+fn Tstream::identifier(self: Tstream) -> String {
+    let ident = self.consume();
+    let name = match ident {
+        Ident(s) => s
+        _ => @util.die("parser: expected identifier");
+    }
+    return name;
+}
+
 let tin: Tstream = Tstream::{ x : 0, tokens : [] };
 
 fn pow(base: Int, exp: Int) -> Int64 {
@@ -51,6 +60,42 @@ fn pow(base: Int, exp: Int) -> Int64 {
     } else {
         pow(base, exp - 1) * base.to_int64();
     }
+}
+ 
+fn do_match() -> @types.Syntax {
+    let matcher = expr();
+
+    // the leading token Match is already consumed by primary()
+    tin.expect(LBrace);
+
+    let result: Array[@types.Branch] = [];
+    while (tin.check(RBrace).not()) {
+        let name = tin.identifier();
+
+        let branch = @types.Branch :: { lead: name, binders: [], exec: Unit };
+
+        if (tin.check(LPar)) {
+            while (tin.check(RPar).not()) {
+                let next = tin.consume();
+                let name = match next {
+                    Ident(s) => s
+                    _ => @util.die("parser: expected identifier inside match")
+                };
+
+                branch.binders.push(name);
+                if (tin.check(Comma).not() && tin.peek() != RPar) {
+                    @util.die("')' expected");
+                }
+            }
+        }
+
+        tin.expect(Arrrow);
+
+        branch.exec = expr();
+        result.push(branch);
+    }
+
+    return Match(matcher, result);
 }
 
 fn primary() -> @types.Syntax {
@@ -106,6 +151,7 @@ fn primary() -> @types.Syntax {
             tin.expect(RBrace);
             inner
         }
+        Match => do_match()
         z => @util.die("Unexpected token \{z} in primary() with surrouding \{tin.surround()}")
     }
 }
@@ -204,6 +250,7 @@ fn get_type() -> @types.Type {
         Double => Double
         Bool => Bool
         Unit => Unit
+        Ident(s) => Type(s)
         LPar => {
             // Tuple?
             let arr: Array[@types.Type] = [];
@@ -244,11 +291,7 @@ fn stmt() -> @types.Syntax {
             ignore(tin.consume());
             let vars: Array[String] = [];
             while (tin.check(RPar).not()) {
-                let ident = tin.consume();
-                let name = match ident {
-                    Ident(s) => s
-                    _ => @util.die("Expected identifier after 'let'");
-                }
+                let name = tin.identifier();
                 vars.push(name);
                 if (tin.check(Comma).not() && tin.peek() != RPar) {
                     @util.die("Bad tuple in 'let' statement")
@@ -279,11 +322,7 @@ fn stmt() -> @types.Syntax {
         }
 
         // Ordinary let
-        let ident = tin.consume();
-        let name = match ident {
-            Ident(s) => s
-            _ => @util.die("Expected identifier after 'let'");
-        }
+        let name = tin.identifier();
 
         let mut ty: @types.Type = Var(Ref::new(None));
         if (tin.check(Colon)) {
@@ -300,11 +339,7 @@ fn stmt() -> @types.Syntax {
 
     if (tin.peek() == Fn) {
         ignore(tin.consume());
-        let ident = tin.consume();
-        let f_name = match ident {
-            Ident(s) => s
-            _ => @util.die("Expected identifier after 'fn'");
-        }
+        let f_name = tin.identifier();
 
         tin.expect(LPar);
         let fargs: Array[(String, @types.Type)] = [];
@@ -358,11 +393,7 @@ fn stmt() -> @types.Syntax {
 }
 
 fn toplevel_fn() -> @types.Syntax {
-    let ident = tin.consume();
-    let f_name = match ident {
-        Ident(s) => s
-        _ => @util.die("Expected identifier after 'fn'");
-    }
+    let f_name = tin.identifier();
     
     let fargs: Array[(String, @types.Type)] = [];
     let mut ret_ty: @types.Type = Unit;
@@ -399,11 +430,7 @@ fn toplevel_fn() -> @types.Syntax {
 }
 
 fn toplevel_let() -> @types.Syntax {
-    let ident = tin.consume();
-    let name = match ident {
-        Ident(s) => s
-        _ => @util.die("Expected identifier after 'let'");
-    }
+    let name = tin.identifier();
 
     tin.expect(Colon);
     let ty = get_type();
@@ -414,6 +441,36 @@ fn toplevel_let() -> @types.Syntax {
     tin.expect(Semicolon);
 
     return Let((name, ty), node, toplevel());
+}
+
+fn toplevel_enum() -> @types.Syntax {
+    let name = tin.identifier();
+    let elems = [];
+
+    tin.expect(LBrace);
+    while (tin.check(RBrace).not()) {
+        let next = tin.identifier();
+
+        if (tin.check(LPar).not()) {
+            elems.push(@types.EnumEntry :: { name: next, binders: [] });
+            continue;
+        }
+
+        let binders = [];
+        while (tin.check(RPar).not()) {
+            let ty = get_type();
+            binders.push(ty);
+            if (tin.check(Comma).not() && tin.peek() != RPar) {
+                @util.die("')' expected");
+            }
+        }
+
+        elems.push(@types.EnumEntry :: { name: next, binders: binders });
+    }
+
+    tin.expect(Semicolon);
+
+    return Enum(name, elems, toplevel());
 }
 
 pub let global: Array[String] = [];
@@ -427,6 +484,10 @@ fn toplevel() -> @types.Syntax {
 
     if (n == Let) {
         return toplevel_let();
+    }
+
+    if (n == Enum) {
+        return toplevel_enum();
     }
 
     if (n == EOF) {

@@ -1,12 +1,16 @@
 pub typealias LocalEnv = @immut/hashmap.T[String, Type]
 
 struct KnfEnv {
+    // Current counter for temporaries
     mut counter : Ref[Int]
 
+    // The correspondence from identifier to Name
     mut names: @immut/hashmap.T[String, Name]
 
+    // All global functions and variables
     mut globals: NameSet
 
+    // Typing info in current scope
     mut env: @immut/hashmap.T[String, @types.Type]
 }
 
@@ -94,6 +98,10 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
         Bool(false) => Int(0)
         Double(x) => Double(x)
         Var(x) => Var(self.get(x))
+        Enum(_, _, w) => {
+            // All info is stored in typing; no need to process this
+            self.to_knf(w)
+        }
         Not(x) => {
             let tx = self.new_temp(Int);
             Let(tx, self.to_knf(x), BNeg(tx))
@@ -215,6 +223,29 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
                 args.foldi(~init = Apply(t_f, t_args),
                 fn (i, knf, arg) { Let(t_args[i], self.to_knf(arg), knf)}));
         }
+        Match(matcher, branches) => {
+            let ty = self.lookup(matcher);
+            let m = self.new_temp(ty);
+            let en = @typing.get_enum(ty);
+            let knf_b = [];
+            for x in branches {
+                let i = en.search_by(fn (z) { z.name == x.lead }).unwrap();
+                let entry = en[i];
+                let env_new =  { ..self };
+                let _ = entry.binders.mapi(fn (i, z) {
+                    env_new.add(x.binders[i], z);
+                });
+
+                let b = Branch :: {
+                    lead: i,
+                    binders: x.binders.map(fn (z) { env_new.get(z) }),
+                    exec: env_new.to_knf(x.exec),
+                };
+                knf_b.push(b);
+            }
+            Let(m, self.to_knf(matcher),
+            Match(m, knf_b));
+        }
         If(cond, body, otherwise) => {
             match cond {
                 Eq(a, b) => {
@@ -286,6 +317,14 @@ pub fn KnfEnv::convert(self: KnfEnv, s: @types.Syntax) -> Knf {
     self.globals = global_syntaxs(s);
     for x in self.globals {
         self.add(x.0, x.1);
+    }
+
+    // Add the constructors in enum
+    // Note we have to supply all these constructors in RISC-V stage
+    for k, v in @typing.e.enums {
+        for x in v {
+            self.add(x.name, Fun(x.binders, Enum(k)));
+        };
     }
     
     self.to_knf(s);

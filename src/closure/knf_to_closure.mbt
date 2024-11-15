@@ -259,12 +259,6 @@ pub fn initial(prog: @knf.Knf) -> Program {
         t.prog.fundefs = [..t.prog.fundefs[t.prog.fundefs.length() / 2:]];
     }
 
-    for x in t.prog.fundefs {
-        println(x.name);
-        println(x.captured);
-        println("")
-    }
-
     return t.prog;
 }
 

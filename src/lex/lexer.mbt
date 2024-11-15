@@ -3,15 +3,16 @@ pub enum Token {
     Sub
     Mul
     Div
-    LPar
-    RPar
+    LPar        // (
+    RPar        // )
     Fn
     Let
     Colon
-    Arrow
+    Arrow       // ->
+    Arrrow      // =>
     Comma
-    LBrace
-    RBrace
+    LBrace      // {
+    RBrace      // }
     Int
     Double
     Semicolon
@@ -22,14 +23,16 @@ pub enum Token {
     False
     Array
     Make
-    LBrak
-    RBrak
+    LBrak       // [
+    RBrak       // ]
     Dot
     Equal
     Lequal
     If
     Else
     Not
+    Enum
+    Match
     Ident(String)
     LitInt(Int)
     EOF
@@ -76,6 +79,8 @@ fn distinguish(z: Array[Char]) -> Token {
         "if" => If
         "else" => Else
         "not" => Not
+        "enum" => Enum
+        "match" => Match
         _ => Ident(y)
     }
 }
@@ -139,6 +144,9 @@ pub fn lex(input: String) -> Array[Token] {
             
             '=' => if arr[x + 1] == '=' {
                 result.push(Equal);
+                x += 1;
+            } else if arr[x + 1] == '>' {
+                result.push(Arrrow);
                 x += 1;
             } else {
                 result.push(Assign);

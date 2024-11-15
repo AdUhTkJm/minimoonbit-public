@@ -21,6 +21,7 @@ pub enum Knf {
     Le(Name, Name)
     IfEq(Name, Name, Knf, Knf)
     IfLe(Name, Name, Knf, Knf)
+    Match(Name, Array[Branch])
     Let(Name, Knf, Knf)
     Var(Name)
     LetRec(FuncDef, Knf)
@@ -40,4 +41,10 @@ pub struct FuncDef {
     ty : Type
     args : Array[Name]
     mut body : Knf
+} derive(Show, Eq)
+
+pub struct Branch {
+    mut lead: Int
+    mut binders: Array[Name]
+    mut exec: Knf
 } derive(Show, Eq)

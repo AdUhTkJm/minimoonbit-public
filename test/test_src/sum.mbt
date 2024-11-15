@@ -1,11 +1,5 @@
-fn sum(x: Int) -> Int {
-  if x <= 0 {
-    0
-  } else {
-    sum(x - 1) + x
-  }
-};
-
-fn main {
-  print_int(sum(10000))
+let x: () -> Int = {
+    let g = 1;
+    fn h() { g }
+    h
 };
