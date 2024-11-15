@@ -291,11 +291,11 @@ fn add_name(names: @immut/hashmap.T[String, String], x: String) -> @immut/hashma
     return if (names.find(x).is_empty() || x == "init" || x == "main") {
         names.add(x, x);
     } else {
-        names.add(x, "\{x}_");
+        names.add(x, "\{names[x].unwrap()}_");
     }
 }
 
-// Rename variables so that there are no variables of the same name.
+/// Rename variables so that there are no variables of the same name, in the same scope.
 fn deconflict(ast: @types.Syntax, names: @immut/hashmap.T[String, String]) -> @types.Syntax {
     match ast {
         LetRec({ name: (f_name, ty), body: syn, args: args }, w) => {

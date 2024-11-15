@@ -159,12 +159,13 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
             }
             Let(a1, self.to_knf(l), Let(a2, self.to_knf(r), i));
         }
-        Let((name, _), s1, s2) => {
+        Let((name, _), val, w) => {
+            let env_new = { ..self };
             if (self.is_global(name).not()) {
-                self.add(name, self.lookup(s1));
+                env_new.add(name, self.lookup(val));
             }
 
-            Let(self.get(name), self.to_knf(s1), self.to_knf(s2));
+            Let(env_new.get(name), self.to_knf(val), env_new.to_knf(w));
         }
         LetRec({ name: (name, ty), args: args, body: syn }, w) => {
             let mut is_init = false;

@@ -5,9 +5,6 @@ pub struct OptEnv {
     // Records if each function is side-effect free
     mut is_se_free: Map[Name, Bool]
 
-    // Records if each function is weak side-effect free
-    mut wse_free: Map[Name, Bool]
-
     // Records function body of each function
     mut fundef: Map[Name, FuncDef]
 
@@ -68,7 +65,6 @@ fn OptEnv::new() -> OptEnv {
     let env = OptEnv :: { 
         used_names: @immut/hashset.T::new(),
         is_se_free: Map::new(),
-        wse_free: Map::new(),
         fundef: Map::new(),
         value: Map::new(),
         capture: Map::new(),
@@ -225,43 +221,6 @@ fn side_effect_free(knf: Knf) -> Bool {
                         match value_of(x) {
                             Fun(v) => 
                                 e.is_se_free[v].unwrap();
-                            
-                            _ => false
-                        }
-                    } else { false }
-                }
-                _ => true
-            }
-        }
-        _ => true
-    }
-}
-
-fn weak_side_effect_free(knf: Knf) -> Bool {
-    match knf {
-        LetRec({ name: name, body: syn, .. }, w) => {
-            if (e.wse_free.contains(name).not()) {
-                e.wse_free[name] = true;
-                e.wse_free[name] = weak_side_effect_free(syn);
-            }
-            weak_side_effect_free(w);
-        }
-        ExternalFunctionApplication(name, _) =>
-            ["minimbt_read_int", "minimbt_read_char", "minimbt_print_int", "minimbt_print_char",
-            "minimbt_print_endline"].contains(name).not()
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
-            weak_side_effect_free(body) && weak_side_effect_free(otherwise)
-        Let(_, val, w) =>
-            weak_side_effect_free(val) && weak_side_effect_free(w)
-        LetTuple(_, _, w) =>
-            weak_side_effect_free(w)
-        Var(x) | Apply(x, _) => {
-            match typing[x] {
-                Some(Fun(_)) => {
-                    if (e.value.contains(x)) {
-                        match value_of(x) {
-                            Fun(v) => 
-                                e.wse_free[v].unwrap();
                             
                             _ => false
                         }
@@ -541,7 +500,6 @@ pub fn opt(knf: Knf) -> Knf {
 
     for k, _ in e.fundef {
         e.is_se_free[k] = true;
-        e.wse_free[k] = true;
     }
 
     let mut opt = knf
@@ -551,7 +509,6 @@ pub fn opt(knf: Knf) -> Knf {
     for i = 0; i < 5; i = i + 1 {
         for k, v in e.fundef {
             e.is_se_free[k] = side_effect_free(v.body);
-            e.wse_free[k] = weak_side_effect_free(v.body);
         }
     }
 

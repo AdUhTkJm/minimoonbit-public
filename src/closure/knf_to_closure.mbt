@@ -63,7 +63,7 @@ fn captured(e: @knf.Knf) -> Set {
         }
 
         Let(x, val, w) => {
-            union(captured(val), captured(w)).remove(x)
+            union(captured(val), captured(w).remove(x))
         }
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut z = captured(syn);
