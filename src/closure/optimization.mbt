@@ -62,6 +62,13 @@ fn get_used(expr: Expr) -> Unit {
 
         ArrayPut(x, i, val) =>
             e.add_used([x, i, val]);
+
+        Match(matcher, branches) => {
+            e.add_used([matcher]);
+            for x in branches {
+                get_used(x.exec);
+            }
+        }
     }
 }
 

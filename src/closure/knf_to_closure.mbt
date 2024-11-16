@@ -62,6 +62,12 @@ fn captured(e: @knf.Knf) -> Set {
             }
         }
 
+        Match(matcher, branches) => {
+            branches.fold(~init = Set::from_array([matcher]),
+            fn (total, x) { union(total, x.binders.fold(~init = captured(x.exec),
+            fn (total, x) { total.remove(x) } ))});
+        }
+
         Let(x, val, w) => {
             union(captured(val), captured(w).remove(x))
         }
@@ -118,6 +124,8 @@ fn convert(knf: @knf.Knf, father: Name) -> Expr {
 
         Apply(f, args) => Call(f, args)
         CallTailRec(f, args) => CallTailRec(f, args)
+        Match(matcher, branches) => 
+            Match(matcher, branches.map(fn(x) { Branch:: { lead: x.lead, binders: x.binders, exec: convert(x.exec, father) } }));
         
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut caps = captured(syn).remove(f_name);

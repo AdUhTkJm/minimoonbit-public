@@ -605,6 +605,42 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             }));
             rv
         }
+        Match(matcher, branches) => {
+            if (branches.length() == 0) {
+                return fake(Unit);
+            }
+
+            let regs = [];
+            let lcnt = t.labelcount;
+
+            let lead = fake(Int);
+            let tmp = fake(Ptr);
+            let addr = fake(Ptr);
+            asm.push(Lw(lead, { base: Fake(matcher), offset: 0} ));
+            asm.push(La(tmp, "match_\{lcnt}_labels"));
+            asm.push(Add(tmp, tmp, lead));
+            asm.push(Ld(addr, { base: tmp, offset: 0 }));
+            asm.push(Jalr(addr));
+
+            // We need at least one branch to know the type
+            let x = branches[0];
+            asm.push(Label("match_\{lcnt}_\{x.lead}"));
+            
+            let rr = emit_expr(x.exec);
+            let result = fake(typeof(real(rr)));
+
+            regs.push(rr);
+            asm.push(Mv(result, rr));
+
+            // The other parts are the same
+            for x in branches[1:] {
+                asm.push(Label("match_\{lcnt}_\{x.lead}"));
+                regs.push(emit_expr(x.exec));
+                asm.push(Mv(result, rr));
+            }
+            t.labelcount += 1;
+            result
+        }
     }
 }
 

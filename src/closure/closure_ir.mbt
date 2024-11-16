@@ -38,6 +38,7 @@ pub enum Expr {
     Save(Name, Name)
     LShift(Name, Int)
     ExternalArray(Array[@knf.Constant])
+    Match(Name, Array[Branch])
 } derive(Show, Eq)
 
 pub fn Expr::hash(self: Expr) -> Int {
@@ -66,3 +67,9 @@ pub struct Program {
     mut fundefs : Array[FuncDef]
     mut body : Expr
 } derive(Show)
+
+pub struct Branch {
+    mut lead: Int
+    mut binders: Array[Name]
+    mut exec: Expr
+} derive(Show, Eq)
