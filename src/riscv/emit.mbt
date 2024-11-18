@@ -1006,35 +1006,35 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let post: Array[RvAsm] = [];
 
     let called = has_call(opt);
-    let mut all_used = @immut/hashset.new();
+    let mut must_save = @immut/hashset.new();
     for x in opt {
         let file = reg_used(x);
         if (file.rd.is_empty().not()) {
-            all_used = all_used.add(file.rd.unwrap());
+            must_save = must_save.add(file.rd.unwrap());
         }
         if (file.rs1.is_empty().not()) {
-            all_used = all_used.add(file.rs1.unwrap());
+            must_save = must_save.add(file.rs1.unwrap());
         }
         if (file.rs2.is_empty().not()) {
-            all_used = all_used.add(file.rs2.unwrap());
+            must_save = must_save.add(file.rs2.unwrap());
         }
     }
 
-    let copy = @immut/hashset.T::from_iter(all_used.iter());
+    let copy = @immut/hashset.T::from_iter(must_save.iter());
     let saved = [..reg_callee_saved_list, ..freg_callee_saved_list];
 
-    all_used = @immut/hashset.T::new();
+    must_save = @immut/hashset.T::new();
 
     for r in copy {
         if (saved.contains(r).not()) {
             continue;
         }
-        all_used = all_used.add(r);
+        must_save = must_save.add(r);
     }
 
     // If no registers are saved and the only call is tail call
     // (special case of tail-call optimization)
-    let mut is_tail = all_used.size() == 0 && opt.length() > 0;
+    let mut is_tail = must_save.size() == 0 && opt.length() > 0;
     if (is_tail) {
         let last = opt.length() - 1;
         for x in opt[:last] {
@@ -1057,10 +1057,10 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 
     if (called && is_tail.not()) {
-        all_used = all_used.add(Ra);
+        must_save = must_save.add(Ra);
     }
 
-    for r in all_used {
+    for r in must_save {
         if (is_intreg(r)) {
             pre.push(Sd(r, { base: Sp, offset: offset }));
             post.push(Ld(r, { base: Sp, offset: offset }));
@@ -1108,7 +1108,9 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
-    offset += 8 * temp_used.size();
+    if (has_call(body)) {
+        offset += 8 * temp_used.size();
+    }
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
     let full_body =
