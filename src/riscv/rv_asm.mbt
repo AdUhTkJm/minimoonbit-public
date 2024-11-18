@@ -150,7 +150,7 @@ fn unspill(logger: Logger, r: Reg) -> Unit {
     if (x != -1) {
         if (is_freg(r)) {
             logger.write_string("\n    ");
-            write2mem(logger, "fsd", S10, { base: Sp, offset: x });
+            write2mem(logger, "fsd", Fs10, { base: Sp, offset: x });
             logger.write_string("\n    ");
         } else {
             logger.write_string("\n    ");
