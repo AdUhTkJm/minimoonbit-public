@@ -39,6 +39,9 @@ struct T {
 
     // If the entry point is directly on main()
     mut merged: Bool
+
+    // All labels in a match expression
+    mut matched: Map[String, Array[String]]
 }
 
 fn T::new() -> T {
@@ -54,6 +57,7 @@ fn T::new() -> T {
         externals: Map::new(),
         mallocked: false,
         merged: false,
+        matched: Map::new(),
     }
 }
 
@@ -605,40 +609,59 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             }));
             rv
         }
-        Match(matcher, branches) => {
+        Match(a, branches) => {
             if (branches.length() == 0) {
                 return fake(Unit);
             }
 
-            let regs = [];
             let lcnt = t.labelcount;
 
             let lead = fake(Int);
             let tmp = fake(Ptr);
             let addr = fake(Ptr);
-            asm.push(Lw(lead, { base: Fake(matcher), offset: 0} ));
+
+            // Load the label that we jump to
+            asm.push(Lw(lead, { base: Fake(a), offset: 0 }));
+            asm.push(Slli(lead, lead, 3));
             asm.push(La(tmp, "match_\{lcnt}_labels"));
             asm.push(Add(tmp, tmp, lead));
             asm.push(Ld(addr, { base: tmp, offset: 0 }));
-            asm.push(Jalr(addr));
+            asm.push(Jr(addr));
 
             // We need at least one branch to know the type
             let x = branches[0];
-            asm.push(Label("match_\{lcnt}_\{x.lead}"));
-            
+            let copy = asm.copy();
             let rr = emit_expr(x.exec);
+            asm.clear();
+            let _ = copy.map(fn (x) { asm.push(x) });
             let result = fake(typeof(real(rr)));
 
-            regs.push(rr);
-            asm.push(Mv(result, rr));
-
-            // The other parts are the same
-            for x in branches[1:] {
+            // Now generate every branch
+            for x in branches {
+                // Label to jump to
                 asm.push(Label("match_\{lcnt}_\{x.lead}"));
-                regs.push(emit_expr(x.exec));
-                asm.push(Mv(result, rr));
+
+                // Bind all binders
+                let mut offset = 4;
+                for y in x.binders {
+                    match typeof(y) {
+                        Int => asm.push(Lw(Fake(y), { base: Fake(a), offset: offset }));
+                        Double => asm.push(Fld(Fake(y), { base: Fake(a), offset: offset }));
+                        _ => asm.push(Ld(Fake(y), { base: Fake(a), offset: offset }));
+                    }
+                    offset += sizeof(y);
+                }
+
+                // Generate body
+                let r = emit_expr(x.exec);
+                asm.push(Mv(result, r));
+                asm.push(J("match_\{lcnt}_break"));
             }
+            asm.push(Label("match_\{lcnt}_break"));
             t.labelcount += 1;
+            t.matched["match_\{lcnt}_labels"] = branches.map(fn (x) {
+                "match_\{lcnt}_\{x.lead}"
+            });
             result
         }
     }
@@ -810,6 +833,48 @@ pub fn emit_externals(logger: Logger) -> Unit {
             });
         }
         logger.write_string("\n\n");
+    }
+}
+
+pub fn emit_matches(logger: Logger) -> Unit {
+    for k, v in t.matched {
+        logger.write_string("\{k}:\n    .dword ");
+        logger.write_string(v.join(", "));
+    }
+}
+
+pub fn emit_enums(logger: Logger) -> Unit {
+    for _, v in @typing.e.enums {
+        let _ = v.mapi(fn (i, x) {
+            let mut offset = 4;
+            let asm: Array[RvAsm] = [];
+            asm.push(Label(x.name));
+            let _ = x.binders.mapi(fn (i, x) {
+                match x {
+                    Int => {
+                        asm.push(Sw(Arg(i), { base: S9, offset: offset }));
+                        offset += 4;
+                    }
+                    Double => {
+                        asm.push(Fsd(Arg(i), { base: S9, offset: offset }));
+                        offset += 8;
+                    }
+                    _ => {
+                        asm.push(Sd(Arg(i), { base: S9, offset: offset }));
+                        offset += 8;
+                    }
+                }
+            });
+            asm.push(Li(A0, i.to_string()));
+            asm.push(Sw(A0, { base: S9, offset: 0 }));
+            asm.push(Mv(A0, S9));
+            asm.push(Addi(S9, S9, offset));
+            asm.push(Ret)
+            for w in asm |> consolidate {
+                Show::output(w, logger);
+                logger.write_string("\n")
+            }
+        });
     }
 }
 
@@ -1068,7 +1133,9 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             } else {
                 fun.old_name.to_string()
             },
-        is_extern: externs.contains(fun.name._),
+        is_extern:
+            // External function, or enum constructors
+            externs.contains(fun.name._) || fun.old_name.slot == 0,
         body: full_body
     }
 }

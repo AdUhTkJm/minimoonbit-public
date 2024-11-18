@@ -124,8 +124,8 @@ fn convert(knf: @knf.Knf, father: Name) -> Expr {
 
         Apply(f, args) => Call(f, args)
         CallTailRec(f, args) => CallTailRec(f, args)
-        Match(matcher, branches) => 
-            Match(matcher, branches.map(fn(x) { Branch:: { lead: x.lead, binders: x.binders, exec: convert(x.exec, father) } }));
+        Match(a, branches) => 
+            Match(a, branches.map(fn(x) { Branch:: { lead: x.lead, binders: x.binders, exec: convert(x.exec, father) } }));
         
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut caps = captured(syn).remove(f_name);
@@ -250,6 +250,12 @@ fn amend(expr: Expr) -> Expr {
                 _ => @util.die("closure: tail-rec failed on \{f}")
             }
         }
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = amend(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -257,6 +263,13 @@ fn amend(expr: Expr) -> Expr {
 pub fn initial(prog: @knf.Knf) -> Program {
     glob.val = @knf.globals(prog);
     globvar.val = @knf.global_vars(prog);
+    
+    // Enum constructors are also globals
+    for _, v in @typing.e.enums {
+        for v in v {
+            glob.val = glob.val.add(Name :: { name: Some(v.name), slot: 0 });
+        }
+    }
 
     // Loop, in case the first round does not capture everything;
     // see capture.mbt

@@ -2,8 +2,6 @@
 import os;
 
 files = os.listdir("test/test_src");
-unpass = [];
-passed = [];
 
 for x in files:
     name = x[:-4];
@@ -19,21 +17,14 @@ for x in files:
     content = result.read();
     result.close();
     
-    truth = open(name + ".ans");
+    truth = open("test/test_src/" + name + ".ans");
     content2 = truth.read();
     truth.close();
     
     if content != content2:
-        unpass.append((name, result, truth));
+        print(f"{name} failed");
     else:
-        passed.append((name, result, truth));
-        
-print(f"Passed: {len(passed)}; Failed: {len(unpass)}");
+        print(f"{name} passed");
 
-for x in unpass:
-    print(f"{name}:");
-    print(f"got      {result}");
-    print(f"expected {truth}");
-    print("\n");
     
 os.remove("test.txt");

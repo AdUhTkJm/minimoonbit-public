@@ -79,8 +79,8 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
                 used_labels = used_labels.add(label);
             }
             La(_, label) => {
-                // The only kind of label that might jump backwards
-                if (label._.ends_with("tailrec")) {
+                // Note: we can skip through the label for if-else 
+                if (label._.ends_with("tailrec") || label._.starts_with("match_")) {
                     last_read.clear();
                     last_written.clear();
                 }
@@ -118,9 +118,10 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
         }
 
         match body[i] {
-            Label(x) as label => if (used_labels.contains(x)) {
-                opt.push(label);
-            }
+            Label(x) as label =>
+                if (used_labels.contains(x) || x.starts_with("match_")) {
+                    opt.push(label);
+                }
             t => opt.push(t);
         }
     }

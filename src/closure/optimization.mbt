@@ -172,6 +172,7 @@ fn rename(expr: Expr, f: (Name) -> Name) -> Expr {
         Deref(ptr) => Deref(f(ptr))
         Save(ptr, val) => Save(f(ptr), f(val))
         LShift(x, i) => LShift(f(x), i)
+        Match(a, branches) => Match(f(a), branches.map(fn (x) { { ..x, exec: rename(x.exec, f)} }));
         t => t
     }
 }
@@ -200,6 +201,11 @@ fn prepare_alias(expr: Expr) -> Unit {
             prepare_alias(body);
             prepare_alias(otherwise);
         }
+        Match(_, branches) => {
+            for x in branches {
+                prepare_alias(x.exec);
+            }
+        }
         _ => ()
     }
 }
@@ -223,6 +229,11 @@ fn prepare_closure_alias(expr: Expr) -> Unit {
         IfEq(_, _, body, otherwise) => {
             prepare_closure_alias(body);
             prepare_closure_alias(otherwise);
+        }
+        Match(_, branches) => {
+            for x in branches {
+                prepare_closure_alias(x.exec);
+            }
         }
         _ => ()
     }
@@ -278,6 +289,16 @@ fn opt_cse_(expr: Expr) -> Expr {
             e.subexpr = s;
             e.alias = al;
             IfLe(a, b, left, right);
+        }
+        Match(a, branches) => {
+            for x in branches {
+                let s = e.subexpr;
+                let al = e.alias;
+                x.exec = opt_cse_one(x.exec);
+                e.subexpr = s;
+                e.alias = al;
+            }
+            Match(a, branches)
         }
         t => t
     }
@@ -375,6 +396,12 @@ fn reform(expr: Expr) -> Expr {
                 CallClosure(f, args)
             }
         }
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = reform(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -396,6 +423,8 @@ fn check_noflee(expr: Expr) -> Bool {
             arr.fold(~init = true, fn (total, x) { total && is_function(x).not() }) && check_noflee(w)
         IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
             check_noflee(body) && check_noflee(otherwise)
+        Match(_, branches) =>
+            branches.fold(~init = true, fn (total, x) { total && check_noflee(x.exec) });
         Call(f, args) => {
             let i = t.prog.fundefs.search_by(fn (x) { x.old_name == f });
             if (i.is_empty()) {

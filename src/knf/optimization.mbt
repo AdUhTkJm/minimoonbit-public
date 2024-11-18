@@ -96,7 +96,7 @@ typealias Set = @immut/hashset.T[Name];
 
 pub fn globals(e: Knf) -> Set {
     match e {
-        Let(a, _, c) => union(Set::from_array([a]), globals(c))
+        Let(a, _, w) => union(Set::from_array([a]), globals(w))
         LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
         _ => Set::new();
     }
@@ -104,7 +104,7 @@ pub fn globals(e: Knf) -> Set {
 
 pub fn global_vars(e: Knf) -> Set {
     match e {
-        Let(a, _, c) => union(Set::from_array([a]), global_vars(c))
+        Let(a, _, w) => union(Set::from_array([a]), global_vars(w))
         LetRec(_, w) => global_vars(w)
         _ => Set::new();
     }
@@ -183,8 +183,8 @@ fn get_used(knf: Knf) -> Unit {
         Put(x, i, val) =>
             e.add_used([x, i, val]);
 
-        Match(matcher, branches) => {
-            e.add_used([matcher]);
+        Match(a, branches) => {
+            e.add_used([a]);
             for x in branches {
                 get_used(x.exec);
             }
@@ -289,6 +289,12 @@ fn opt_remove_unused_(knf: Knf) -> Knf {
             IfLe(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = opt_remove_unused_(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -324,6 +330,12 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
             IfLe(a, b, opt_const_fold(body), opt_const_fold(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, opt_const_fold(body), opt_const_fold(otherwise))
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = opt_const_fold(x.exec)
+            }
+            Match(a, branches)
+        }
         Add(a, b) => {
             match (value_of(a), value_of(b)) {
                 ((Int(x)), (Int(y))) => Int(x + y)
