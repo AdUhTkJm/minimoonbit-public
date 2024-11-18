@@ -84,7 +84,7 @@ pub enum RvAsm {
     // Comments
     Label(String)
     Comment(String)
-}
+} derive(Eq)
 
 pub fn RvAsm::to_string(self: RvAsm) -> String {
     let l = Buffer::new();

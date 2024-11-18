@@ -329,7 +329,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             let result = fake(ty);
 
-            match ty {
+            match @typing.real(ty) {
                 Double => asm.push(Fld(result, { base: Fake(x), offset: 0 }));
                 Int =>  asm.push(Lw(result, { base: Fake(x), offset: 0 }));
                 _ => asm.push(Ld(result, { base: Fake(x), offset: 0 }));
@@ -993,7 +993,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             |> opt_remove_write
             |> opt_remove_unread
             |> opt_inline_loopvar
-            |> opt_squeeze_loop
+            |> opt_squeeze_loop;
     }
 
     opt = opt
@@ -1113,7 +1113,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
-    let full_body =
+    let mut full_body =
         if (offset > 0) {[
             Addi(Sp, Sp, -offset),
             ..pre,
@@ -1126,6 +1126,20 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         } else {
             [..pre, ..called, ..post, Ret]
         }
+
+    // If is_tail, the final jump is a call;
+    // In this case opt_remove_write etc. cannot detect it correctly
+
+    // Moreover, it is essential that there is no register saving
+    // otherwise opt_remove_write will eliminate them all
+    if (is_tail.not() && has_call(opt).not() && offset == 0) {
+        full_body = full_body
+            |> opt_disjump
+            |> opt_remove_identical
+            |> opt_peephole_2
+            |> opt_remove_write;
+    }
+
 
     AssemblyFunction :: {
         name:

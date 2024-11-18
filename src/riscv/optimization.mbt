@@ -340,7 +340,7 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
-            (Ld(a, mem), Mv(b, c)) | (Lw(a, mem), Mv(b, c)) | (Fld(a, mem), Mv(b, c)) => {
+            (Ld(a, mem), Mv(b, c)) => {
                 // same goes for load
                 if (a == c) {
                     result.push(Ld(b, mem));
@@ -349,9 +349,26 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Lw(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Lw(b, mem));
+                    result.push(Mv(a, b));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Fld(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Fld(b, mem));
+                    result.push(Mv(a, b));
+                    i += 2;
+                    continue;
+                }
+            }
             (Add(a, b, c), Add(d, e, f)) => {
                 // add a, b, c; add d, b, c => add a, b, c; mv d, a
-                // Perhaps makes more optimization usable
                 if (b == e && c == f) {
                     result.push(Add(a, b, c));
                     result.push(Mv(d, a));
@@ -359,12 +376,87 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Addi(a, b, c), Ld(d, { base: e, offset: f })) => {
+                // addi a, b, c; ld d, f(a) => addi a, b, c; ld d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Ld(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Ld(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Ld(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Lw(d, { base: e, offset: f })) => {
+                // addi a, b, c; lw d, f(a) => addi a, b, c; lw d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Lw(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Lw(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Lw(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Fld(d, { base: e, offset: f })) => {
+                // addi a, b, c; fld d, f(a) => addi a, b, c; fld d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Fld(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Fld(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Fld(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Sd(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Sd(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Sw(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Sw(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Fsd(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Fsd(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
             (Ld(a, mem), Ld(b, mem2)) => {
                 // ld a, 0(t); ld b, 0(t) => ld a, 0(t); mv b, a
-                // This requires a != t
-                if (mem == mem2 && mem2.base != a) {
+                // Note the opposite does not hold
+                if (mem == mem2 && mem.base != a) { 
                     result.push(Ld(a, mem));
-                    result.push(Mv(b, a));   
+                    result.push(Mv(b, a));
                     i += 2;
                     continue;
                 }
@@ -879,25 +971,43 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let (begin, end) = range.unwrap();
     let invar: Map[Reg, String] = {};
+    let ref: Map[Reg, Reg] = {};
+    let beginning = [];
 
     for x in body[:begin] {
-        // These are the exact things we extract for loop invariants
-        // if you change that function, must also change here
         match x {
-            La(a, Label(x)) | Li(a, x)=> {
-                invar[a] = x;
+            La(a, Label(z)) | Li(a, z)=> {
+                invar[a] = z;
+                beginning.push(x);
+            }
+            Mv(a, b) => {
+                if (arg_list.contains(a).not() && arg_list.contains(b).not()) {
+                    ref[a] = b;
+                } else {
+                    beginning.push(x);
+                }
             }
             _ => {
                 let used = reg_used(x);
                 if (used.rd.is_empty().not()) {
                     invar.remove(used.rd.unwrap());
+                    ref.remove(used.rd.unwrap());
                 }
+                beginning.push(x);
             }
         }
     }
 
+    fn rename(r) {
+        match ref[r] {
+            Some(t) => t
+            None => r
+        }
+    }
+
     let middle = [];
-    for x in body[begin: end] {
+    for y in body[begin: end] {
+        let x = register_rename(y, rename, rename);
         match x {
             Add(a, b, c) => {
                 if (invar.contains(c)) {
@@ -955,7 +1065,7 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
         middle.push(x);
     }
     
-    new_body = [..body[:begin], ..middle, ..body[end: ]];
+    new_body = [..beginning, ..middle, ..body[end: ]];
 
     return new_body;
 }
@@ -1063,6 +1173,42 @@ pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     let result = [..body[:begin], ..middle_opt, ..body[end:]];
+    return result;
+}
+
+/// If there are only a few instructions after a jump,
+/// then copy it there
+/// This is only applicable to `full_body` (with return and register protection);
+/// Don't use it with `opt`.
+pub fn opt_disjump(body: Array[RvAsm]) -> Array[RvAsm] {
+    // For each label, how many instructions are after it
+    let labels = {};
+    let len = body.length();
+    let _ = body.mapi(fn (i, x) {
+        match x {
+            Label(x) => {
+                labels[x] = len - i;
+            }
+            _ => ()
+        }
+    });
+
+    let result = [];
+    for x in body {
+        match x {
+            J(Label(x)) => {
+                // It is possible to jump to somewhere not declared in the function;
+                // the tail-jump is an example
+                if (labels[x].or(5) <= 4) {
+                    let inst = labels[x].unwrap();
+                    result.append([..body[len-inst+1:]]);
+                } else {
+                    result.push(J(Label(x)));
+                }
+            }
+            t => result.push(t);
+        }
+    }
     return result;
 }
 
