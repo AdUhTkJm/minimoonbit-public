@@ -20,6 +20,7 @@ pub enum Knf {
     Eq(Name, Name)
     Le(Name, Name)
     IfEq(Name, Name, Knf, Knf)
+    IfNe(Name, Name, Knf, Knf)
     IfLe(Name, Name, Knf, Knf)
     Match(Name, Array[Branch])
     Let(Name, Knf, Knf)

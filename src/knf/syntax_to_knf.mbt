@@ -281,8 +281,8 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
                     let ta = self.new_temp(Int);
                     let tb = self.new_temp(Int);
                     Let(ta, self.to_knf(cond),
-                    Let(tb, Int(1),
-                    IfEq(ta, tb, self.to_knf(body), self.to_knf(otherwise))))
+                    Let(tb, Int(0),
+                    IfNe(ta, tb, self.to_knf(body), self.to_knf(otherwise))))
                 }
             }
         }

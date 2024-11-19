@@ -1,4 +1,3 @@
-pub typealias LocalEnv = @immut/hashmap.T[Name, LowType]
 typealias Set = @immut/hashset.T[@knf.Name]
 
 // All global variables and functions
@@ -47,7 +46,7 @@ fn captured(e: @knf.Knf) -> Set {
         Apply(f, args) | CallTailRec(f, args) => Set::from_array([f, ..args])
         Tuple(arr) => Set::from_array(arr)
 
-        IfEq(a, b, l, r) | IfLe(a, b, l, r) => {
+        IfEq(a, b, l, r) | IfLe(a, b, l, r) | IfNe(a, b, l, r) => {
             let mut z = union(captured(l), captured(r));
             z = z.add(a).add(b);
             z
@@ -119,6 +118,7 @@ fn convert(knf: @knf.Knf, father: Name) -> Expr {
 
         IfEq(a, b, c, d) => IfEq(a, b, convert(c, father), convert(d, father))
         IfLe(a, b, c, d) => IfLe(a, b, convert(c, father), convert(d, father))
+        IfNe(a, b, c, d) => IfNe(a, b, convert(c, father), convert(d, father))
 
         LetTuple(arr, val, w) => LetTuple(arr, val, convert(w, father))
 
@@ -228,6 +228,8 @@ fn amend(expr: Expr) -> Expr {
             IfLe(a, b, amend(body), amend(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, amend(body), amend(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, amend(body), amend(otherwise))
         Let(x, val, w) =>
             Let(x, amend(val), amend(w));
         LetTuple(arr, val, w) =>

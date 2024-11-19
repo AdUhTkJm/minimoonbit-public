@@ -115,45 +115,6 @@ pub fn Expr::from_json(json : Json) -> Expr! {
     }
 }
 
-pub fn LowType::to_json(self : LowType) -> Json {
-    match self {
-        LowType::Unit => ["Unit"]
-        LowType::Bool => ["Bool"]
-        LowType::Int => ["Int"]
-        LowType::Ptr => ["Ptr"]
-        LowType::Double => ["Double"]
-        LowType::Tuple(ts) => ["Tuple", ts.to_json()]
-        LowType::Array(t) => ["Array", t.to_json()]
-        LowType::Fun(ts, t) => ["Function", ts.to_json(), t.to_json()]
-    }
-}
-
-pub fn LowType::from_json(json : Json) -> LowType! {
-    match json {
-        ["Unit"] => LowType::Unit
-        ["Bool"] => LowType::Bool
-        ["Int"] => LowType::Int
-        ["Double"] => LowType::Double
-        ["Ptr"] => LowType::Ptr
-        ["Tuple", Array(ts)] => {
-            let ts_res = []
-            for t in ts {
-                ts_res.push(LowType::from_json!(t))
-            }
-            LowType::Tuple(ts_res)
-        }
-        ["Array", t] => LowType::Array(LowType::from_json!(t))
-        ["Function", Array(ts), t] => {
-            let ts_res = []
-            for t in ts {
-                ts_res.push(LowType::from_json!(t))
-            }
-            LowType::Fun(ts_res, LowType::from_json!(t))
-        }
-        _ => fail!("invalid json")
-    }
-}
-
 pub fn Closure::to_json(self : Closure) -> Json {
     {
         "name": self.name._.to_json(),

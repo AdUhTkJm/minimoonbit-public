@@ -391,7 +391,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             r;
         }
-        IfEq(a, b, body, otherwise) => {
+        IfEq(a, b, body, otherwise) | IfLe(a, b, body, otherwise) | IfNe(a, b, body, otherwise) => {
             let l_else = "else_\{t.labelcount}";
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
@@ -403,12 +403,23 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             };
 
             if (ty == Int) {
-                asm.push(Bne(Fake(a), Fake(b), l_else));
+                match expr {
+                    IfLe(_) => asm.push(Bgt(Fake(a), Fake(b), l_else));
+                    IfEq(_) => asm.push(Bne(Fake(a), Fake(b), l_else));
+                    IfNe(_) => asm.push(Beq(Fake(a), Fake(b), l_else));
+                    _ => @util.die("emit: impossible");
+                }
             } else {
                 let tmp = fake(Int);
-                asm.push(FeqD(tmp, Fake(a), Fake(b)));
+                match expr {
+                    IfLe(_) => asm.push(FleD(tmp, Fake(a), Fake(b)));
+                    IfEq(_) => asm.push(FeqD(tmp, Fake(a), Fake(b)));
+                    // IfNe does not occur here.
+                    _ => @util.die("emit: impossible");
+                }
                 asm.push(Beq(tmp, Zero, l_else));
             }
+
             
             let e_body = emit_expr(body);
             let r = fake(typeof(real(e_body)));
@@ -420,36 +431,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Mv(r, emit_expr(otherwise)));
             asm.push(Label(end));
             
-            r;
-        }
-        IfLe(a, b, body, otherwise) => {
-            let l_else = "else_\{t.labelcount}";
-            let end = "end_\{t.labelcount}";
-            t.labelcount += 1;
-
-            let ty: @types.Type = match typeof(a) {
-                Int | Bool => Int
-                Double => Double
-                _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
-            };
-
-            if (ty == Int) {
-                asm.push(Bgt(Fake(a), Fake(b), l_else));
-            } else {
-                let tmp = fake(Int);
-                asm.push(FleD(tmp, Fake(a), Fake(b)));
-                asm.push(Beq(tmp, Zero, l_else));
-            }
-            
-            let e_body = emit_expr(body);
-            let r = fake(typeof(real(e_body)));
-
-            asm.push(Mv(r, e_body));
-            asm.push(J(end));
-            asm.push(Label(l_else));
-
-            asm.push(Mv(r, emit_expr(otherwise)));
-            asm.push(Label(end));
             r;
         }
         Let(a, val, w) => {
@@ -985,7 +966,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let mut opt = body
             |> consolidate;
     
-    for i = 0; i < 3; i = i + 1 {
+    for i = 0; i < 4; i = i + 1 {
         opt = opt
             |> opt_remove_identical
             |> opt_peephole_2

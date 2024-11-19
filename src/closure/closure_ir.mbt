@@ -23,6 +23,7 @@ pub enum Expr {
     Le(Name, Name)
     IfEq(Name, Name, Expr, Expr)
     IfLe(Name, Name, Expr, Expr)
+    IfNe(Name, Name, Expr, Expr)
     Let(Name, Expr, Expr)
     Var(Name)
     Call(Name, Array[Name])
