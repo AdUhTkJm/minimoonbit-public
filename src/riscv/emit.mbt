@@ -886,13 +886,13 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     
     for i = 0; i < 3; i = i + 1 {
         opt = opt
-            |> opt_remove_identical
+            |> opt_remove_identical // a0=a0
             |> opt_peephole_2
-            |> opt_inline_var
-            |> opt_remove_write
-            |> opt_remove_unread
-            |> opt_inline_loopvar
-            |> opt_squeeze_loop
+            |> opt_inline_var // a=b => a changed to b until a was changed
+            |> opt_remove_write // consecutive assigns
+            |> opt_remove_unread 
+            |> opt_inline_loopvar // inline_var in loops
+            |> opt_squeeze_loop // use the method of copy and paste the loop to find useless instructions
     }
 
     opt = opt
