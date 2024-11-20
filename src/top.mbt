@@ -14,6 +14,8 @@ pub enum Syntax {
     Prim(Syntax, Syntax, Op, mut ~kind : Kind?)         // _+ - * / _
     Eq(Syntax, Syntax)                                  // _==_
     Le(Syntax, Syntax)                                  // _<=_
+    Define(String, Syntax)                              // define _ : _ enifed
+    // define f(x) (x)
     Let((String, Type), Syntax, Syntax)                 // let _: _ = _; _
     LetRec(Fundef, Syntax)                              // fn f() {} ; _
     LetTuple(Array[(String, Type)], Syntax, Syntax)     // let (_ , _) : (_, _)= _; _

@@ -968,7 +968,7 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     
     for i = 0; i < 4; i = i + 1 {
         opt = opt
-            |> opt_remove_identical
+            |> opt_remove_identical // a0=a0
             |> opt_peephole_2
             |> opt_inline_var
             |> opt_remove_write
