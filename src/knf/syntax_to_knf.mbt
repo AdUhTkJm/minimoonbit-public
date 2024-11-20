@@ -40,9 +40,13 @@ fn KnfEnv::new_temp(self: KnfEnv, ty: Type) -> Name {
     temp
 }
 
-fn KnfEnv::new_named_temp(self: KnfEnv, name: Name, ty: Type) -> Name {
+fn KnfEnv::new_named_temp(self: KnfEnv, name: String, ty: Type) -> Name {
     let counter = self.counter;
-    let temp = { ..name, slot: counter.val };
+    let temp = if ("ABCDEFGHIJKLMNOPQRSTUVWXYZ".contains_char(name[0])) {
+        Name :: { name: Some(name), slot: 0 };
+    } else {
+        Name :: { name: Some(name), slot: counter.val };
+    }
     typing[temp] = ty;
     self.counter.val += 1;
     temp
@@ -63,7 +67,7 @@ fn KnfEnv::get(self: KnfEnv, name: String) -> Name {
 
 fn KnfEnv::add(self: KnfEnv, name: String, ty: Type) -> Unit {
     self.env = self.env.add(name, ty);
-    self.names = self.names.add(name, self.new_named_temp(Name::name_only(name), ty));
+    self.names = self.names.add(name, self.new_named_temp(name, ty));
 }
 
 fn KnfEnv::lookup(self: KnfEnv, syn: @types.Syntax) -> @types.Type {
@@ -98,9 +102,17 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
         Bool(false) => Int(0)
         Double(x) => Double(x)
         Var(x) => Var(self.get(x))
-        Enum(_, _, w) => {
-            // All info is stored in typing; no need to process this
-            self.to_knf(w)
+        Enum(k, ent, w) => {
+            // Generate method stubs
+            // The body are generated in RISC-V stage
+            ent.fold(~init = self.to_knf(w),
+            fn (total, x) {
+                LetRec({
+                    name: Name::name_and_slot(x.name, 0),
+                    ty: Fun(x.binders, Enum(k)),
+                    args: x.binders.map(fn(x) { self.new_temp(x) }),
+                    body: Unit },
+                total)});
         }
         Not(x) => {
             let tx = self.new_temp(Int);
@@ -269,8 +281,8 @@ pub fn KnfEnv::to_knf(self: KnfEnv, s: @types.Syntax) -> Knf {
                     let ta = self.new_temp(Int);
                     let tb = self.new_temp(Int);
                     Let(ta, self.to_knf(cond),
-                    Let(tb, Int(1),
-                    IfEq(ta, tb, self.to_knf(body), self.to_knf(otherwise))))
+                    Let(tb, Int(0),
+                    IfNe(ta, tb, self.to_knf(body), self.to_knf(otherwise))))
                 }
             }
         }
@@ -318,6 +330,11 @@ pub fn KnfEnv::convert(self: KnfEnv, s: @types.Syntax) -> Knf {
     self.globals = global_syntaxs(s);
     for x in self.globals {
         self.add(x.0, x.1);
+    }
+    for k, v in @typing.e.enums {
+        for v in v {
+            self.globals = self.globals.add((v.name, Fun(v.binders, Enum(k))));
+        }
     }
 
     // Add the constructors in enum

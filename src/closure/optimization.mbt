@@ -38,7 +38,8 @@ fn get_used(expr: Expr) -> Unit {
             ();
 
         IfEq(a, b, body, otherwise) |
-        IfLe(a, b, body, otherwise) => {
+        IfLe(a, b, body, otherwise) |
+        IfNe(a, b, body, otherwise) => {
             e.add_used([a, b]);
             get_used(body);
             get_used(otherwise);
@@ -62,6 +63,13 @@ fn get_used(expr: Expr) -> Unit {
 
         ArrayPut(x, i, val) =>
             e.add_used([x, i, val]);
+
+        Match(matcher, branches) => {
+            e.add_used([matcher]);
+            for x in branches {
+                get_used(x.exec);
+            }
+        }
     }
 }
 
@@ -74,7 +82,7 @@ fn side_effect_free(expr: Expr) -> Bool {
             ["minimbt_read_int", "minimbt_read_char", "minimbt_print_int", "minimbt_print_char",
             "minimbt_print_endline", "minimbt_malloc", "minimbt_create_ptr_array",
             "minimbt_create_float_array", "minimbt_create_array"].contains(name._).not()
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) | IfNe(_, _, body, otherwise) =>
             side_effect_free(body) && side_effect_free(otherwise)
         Let(_, val, w) =>
             side_effect_free(val) && side_effect_free(w)
@@ -103,6 +111,8 @@ fn opt_remove_unused_(expr: Expr) -> Expr {
             LetTuple(x, arr, opt_remove_unused_(w))
         IfLe(a, b, body, otherwise) =>
             IfLe(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
         t => t
@@ -124,7 +134,7 @@ pub fn opt_remove_unused(program: Program) -> Program {
 
 fn no_mutable(expr: Expr) -> Bool {
     match expr {
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) | IfNe(_, _, body, otherwise) =>
             no_mutable(body) && no_mutable(otherwise)
         Let(_, val, w) =>
             no_mutable(val) && no_mutable(w)
@@ -153,6 +163,7 @@ fn rename(expr: Expr, f: (Name) -> Name) -> Expr {
         Le(a, b) => Le(f(a), f(b))
         IfEq(a, b, body, otherwise) => IfEq(f(a), f(b), rename(body, f), rename(otherwise, f))
         IfLe(a, b, body, otherwise) => IfLe(f(a), f(b), rename(body, f), rename(otherwise, f))
+        IfNe(a, b, body, otherwise) => IfNe(f(a), f(b), rename(body, f), rename(otherwise, f))
         Let(x, val, w) => Let(x, rename(val, f), rename(w, f))
         Var(a) => Var(f(a))
         Call(ff, args) => Call(f(ff), args.map(f))
@@ -165,6 +176,7 @@ fn rename(expr: Expr, f: (Name) -> Name) -> Expr {
         Deref(ptr) => Deref(f(ptr))
         Save(ptr, val) => Save(f(ptr), f(val))
         LShift(x, i) => LShift(f(x), i)
+        Match(a, branches) => Match(f(a), branches.map(fn (x) { { ..x, exec: rename(x.exec, f)} }));
         t => t
     }
 }
@@ -189,9 +201,15 @@ fn prepare_alias(expr: Expr) -> Unit {
         LetTuple(_, _, w) =>
             prepare_alias(w)
         IfLe(_, _, body, otherwise) |
-        IfEq(_, _, body, otherwise) => {
+        IfEq(_, _, body, otherwise) |
+        IfNe(_, _, body, otherwise) => {
             prepare_alias(body);
             prepare_alias(otherwise);
+        }
+        Match(_, branches) => {
+            for x in branches {
+                prepare_alias(x.exec);
+            }
         }
         _ => ()
     }
@@ -213,9 +231,15 @@ fn prepare_closure_alias(expr: Expr) -> Unit {
         LetTuple(_, _, w) =>
             prepare_closure_alias(w)
         IfLe(_, _, body, otherwise) |
-        IfEq(_, _, body, otherwise) => {
+        IfEq(_, _, body, otherwise) |
+        IfNe(_, _, body, otherwise) => {
             prepare_closure_alias(body);
             prepare_closure_alias(otherwise);
+        }
+        Match(_, branches) => {
+            for x in branches {
+                prepare_closure_alias(x.exec);
+            }
         }
         _ => ()
     }
@@ -243,7 +267,7 @@ fn opt_cse_(expr: Expr) -> Expr {
         }
         LetTuple(x, arr, w) =>
             LetTuple(x, arr, opt_cse_(w))
-        IfEq(a, b, body, otherwise) => {
+        IfEq(a, b, body, otherwise) | IfLe(a, b, body, otherwise) | IfNe(a, b, body, otherwise) => {
             // We can't cross boundary of branches
             let s = e.subexpr;
             let al = e.alias;
@@ -256,21 +280,22 @@ fn opt_cse_(expr: Expr) -> Expr {
             let right = opt_cse_one(otherwise);
             e.subexpr = s;
             e.alias = al;
-            IfEq(a, b, left, right);
+            match expr {
+                IfEq(_) => IfEq(a, b, left, right);
+                IfLe(_) => IfLe(a, b, left, right);
+                IfNe(_) => IfNe(a, b, left, right);
+                _ => @util.die("opt-closure: impossible");
+            }
         }
-        IfLe(a, b, body, otherwise) => {
-            let s = e.subexpr;
-            let al = e.alias;
-            let left = opt_cse_one(body);
-            e.subexpr = s;
-            e.alias = al;
-
-            let s = e.subexpr;
-            let al = e.alias;
-            let right = opt_cse_one(otherwise);
-            e.subexpr = s;
-            e.alias = al;
-            IfLe(a, b, left, right);
+        Match(a, branches) => {
+            for x in branches {
+                let s = e.subexpr;
+                let al = e.alias;
+                x.exec = opt_cse_one(x.exec);
+                e.subexpr = s;
+                e.alias = al;
+            }
+            Match(a, branches)
         }
         t => t
     }
@@ -345,6 +370,8 @@ fn reform(expr: Expr) -> Expr {
             LetTuple(x, arr, reform(w))
         IfLe(a, b, body, otherwise) =>
             IfLe(a, b, reform(body), reform(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, reform(body), reform(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, reform(body), reform(otherwise))
         Call(f, args) => {
@@ -368,6 +395,12 @@ fn reform(expr: Expr) -> Expr {
                 CallClosure(f, args)
             }
         }
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = reform(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -387,8 +420,10 @@ fn check_noflee(expr: Expr) -> Bool {
             check_noflee(val) && check_noflee(w) && is_function_type(@knf.typing[a].unwrap()).not()
         LetTuple(arr, _, w) =>
             arr.fold(~init = true, fn (total, x) { total && is_function(x).not() }) && check_noflee(w)
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) | IfNe(_, _, body, otherwise) =>
             check_noflee(body) && check_noflee(otherwise)
+        Match(_, branches) =>
+            branches.fold(~init = true, fn (total, x) { total && check_noflee(x.exec) });
         Call(f, args) => {
             let i = t.prog.fundefs.search_by(fn (x) { x.old_name == f });
             if (i.is_empty()) {

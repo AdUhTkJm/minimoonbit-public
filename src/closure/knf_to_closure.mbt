@@ -1,4 +1,3 @@
-pub typealias LocalEnv = @immut/hashmap.T[Name, LowType]
 typealias Set = @immut/hashset.T[@knf.Name]
 
 // All global variables and functions
@@ -47,7 +46,7 @@ fn captured(e: @knf.Knf) -> Set {
         Apply(f, args) | CallTailRec(f, args) => Set::from_array([f, ..args])
         Tuple(arr) => Set::from_array(arr)
 
-        IfEq(a, b, l, r) | IfLe(a, b, l, r) => {
+        IfEq(a, b, l, r) | IfLe(a, b, l, r) | IfNe(a, b, l, r) => {
             let mut z = union(captured(l), captured(r));
             z = z.add(a).add(b);
             z
@@ -60,6 +59,12 @@ fn captured(e: @knf.Knf) -> Set {
             } else {
                 Set::from_array([a, ..ff.unwrap().captured]);
             }
+        }
+
+        Match(matcher, branches) => {
+            branches.fold(~init = Set::from_array([matcher]),
+            fn (total, x) { union(total, x.binders.fold(~init = captured(x.exec),
+            fn (total, x) { total.remove(x) } ))});
         }
 
         Let(x, val, w) => {
@@ -113,11 +118,14 @@ fn convert(knf: @knf.Knf, father: Name) -> Expr {
 
         IfEq(a, b, c, d) => IfEq(a, b, convert(c, father), convert(d, father))
         IfLe(a, b, c, d) => IfLe(a, b, convert(c, father), convert(d, father))
+        IfNe(a, b, c, d) => IfNe(a, b, convert(c, father), convert(d, father))
 
         LetTuple(arr, val, w) => LetTuple(arr, val, convert(w, father))
 
         Apply(f, args) => Call(f, args)
         CallTailRec(f, args) => CallTailRec(f, args)
+        Match(a, branches) => 
+            Match(a, branches.map(fn(x) { Branch:: { lead: x.lead, binders: x.binders, exec: convert(x.exec, father) } }));
         
         LetRec({ name: f_name, ty: _, args: args, body: syn }, w) => {
             let mut caps = captured(syn).remove(f_name);
@@ -220,6 +228,8 @@ fn amend(expr: Expr) -> Expr {
             IfLe(a, b, amend(body), amend(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, amend(body), amend(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, amend(body), amend(otherwise))
         Let(x, val, w) =>
             Let(x, amend(val), amend(w));
         LetTuple(arr, val, w) =>
@@ -242,6 +252,12 @@ fn amend(expr: Expr) -> Expr {
                 _ => @util.die("closure: tail-rec failed on \{f}")
             }
         }
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = amend(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -249,6 +265,13 @@ fn amend(expr: Expr) -> Expr {
 pub fn initial(prog: @knf.Knf) -> Program {
     glob.val = @knf.globals(prog);
     globvar.val = @knf.global_vars(prog);
+    
+    // Enum constructors are also globals
+    for _, v in @typing.e.enums {
+        for v in v {
+            glob.val = glob.val.add(Name :: { name: Some(v.name), slot: 0 });
+        }
+    }
 
     // Loop, in case the first round does not capture everything;
     // see capture.mbt

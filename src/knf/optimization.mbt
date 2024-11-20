@@ -96,7 +96,7 @@ typealias Set = @immut/hashset.T[Name];
 
 pub fn globals(e: Knf) -> Set {
     match e {
-        Let(a, _, c) => union(Set::from_array([a]), globals(c))
+        Let(a, _, w) => union(Set::from_array([a]), globals(w))
         LetRec({ name: f_name, .. }, w) => union(Set::from_array([f_name]), globals(w))
         _ => Set::new();
     }
@@ -104,7 +104,7 @@ pub fn globals(e: Knf) -> Set {
 
 pub fn global_vars(e: Knf) -> Set {
     match e {
-        Let(a, _, c) => union(Set::from_array([a]), global_vars(c))
+        Let(a, _, w) => union(Set::from_array([a]), global_vars(w))
         LetRec(_, w) => global_vars(w)
         _ => Set::new();
     }
@@ -152,7 +152,8 @@ fn get_used(knf: Knf) -> Unit {
             ();
 
         IfEq(a, b, body, otherwise) |
-        IfLe(a, b, body, otherwise) => {
+        IfLe(a, b, body, otherwise) |
+        IfNe(a, b, body, otherwise) => {
             e.add_used([a, b]);
             get_used(body);
             get_used(otherwise);
@@ -183,8 +184,8 @@ fn get_used(knf: Knf) -> Unit {
         Put(x, i, val) =>
             e.add_used([x, i, val]);
 
-        Match(matcher, branches) => {
-            e.add_used([matcher]);
+        Match(a, branches) => {
+            e.add_used([a]);
             for x in branches {
                 get_used(x.exec);
             }
@@ -207,7 +208,7 @@ fn side_effect_free(knf: Knf) -> Bool {
             ["minimbt_read_int", "minimbt_read_char", "minimbt_print_int", "minimbt_print_char",
             "minimbt_print_endline", "minimbt_malloc", "minimbt_create_ptr_array",
             "minimbt_create_array", "minimbt_create_float_array"].contains(name).not()
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) =>
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) | IfNe(_, _, body, otherwise) =>
             side_effect_free(body) && side_effect_free(otherwise)
         Let(_, val, w) =>
             side_effect_free(val) && side_effect_free(w)
@@ -241,7 +242,7 @@ fn prepare_fundef(knf: Knf) -> Unit {
             prepare_fundef(syn);
             prepare_fundef(w);
         }
-        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) => {
+        IfEq(_, _, body, otherwise) | IfLe(_, _, body, otherwise) | IfNe(_, _, body, otherwise) => {
             prepare_fundef(body);
             prepare_fundef(otherwise)
         }
@@ -289,6 +290,14 @@ fn opt_remove_unused_(knf: Knf) -> Knf {
             IfLe(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, opt_remove_unused_(body), opt_remove_unused_(otherwise))
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = opt_remove_unused_(x.exec);
+            }
+            Match(a, branches)
+        }
         t => t
     }
 }
@@ -324,6 +333,14 @@ pub fn opt_const_fold(knf: Knf) -> Knf {
             IfLe(a, b, opt_const_fold(body), opt_const_fold(otherwise))
         IfEq(a, b, body, otherwise) =>
             IfEq(a, b, opt_const_fold(body), opt_const_fold(otherwise))
+        IfNe(a, b, body, otherwise) =>
+            IfNe(a, b, opt_const_fold(body), opt_const_fold(otherwise))
+        Match(a, branches) => {
+            for x in branches {
+                x.exec = opt_const_fold(x.exec)
+            }
+            Match(a, branches)
+        }
         Add(a, b) => {
             match (value_of(a), value_of(b)) {
                 ((Int(x)), (Int(y))) => Int(x + y)
@@ -404,7 +421,7 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
             LetTuple(arr, x, opt_tail_rec_(w, func))
         LetRec({ name: name, ty: ty, args: args, body: syn }, w) =>
             LetRec({ name: name, ty: ty, args: args, body: opt_tail_rec_(syn, name) }, opt_tail_rec_(w, func))
-        IfLe(a, b, body, otherwise) | IfEq(a, b, body, otherwise) => {
+        IfLe(a, b, body, otherwise) | IfEq(a, b, body, otherwise) | IfNe(a, b, body, otherwise) => {
             let mut left = opt_tail_rec_(body, func);
             if (e.tail_success == No) {
                 left = body;
@@ -417,6 +434,7 @@ fn opt_tail_rec_(knf: Knf, func: @types.Name) -> Knf {
             match knf {
                 IfLe(_) => IfLe(a, b, left, right);
                 IfEq(_) => IfEq(a, b, left, right);
+                IfNe(_) => IfNe(a, b, left, right);
                 _ => @util.die("opt-tail: impossible")
             }
         }

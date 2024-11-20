@@ -39,6 +39,9 @@ struct T {
 
     // If the entry point is directly on main()
     mut merged: Bool
+
+    // All labels in a match expression
+    mut matched: Map[String, Array[String]]
 }
 
 fn T::new() -> T {
@@ -54,6 +57,7 @@ fn T::new() -> T {
         externals: Map::new(),
         mallocked: false,
         merged: false,
+        matched: Map::new(),
     }
 }
 
@@ -325,7 +329,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             let result = fake(ty);
 
-            match ty {
+            match @typing.real(ty) {
                 Double => asm.push(Fld(result, { base: Fake(x), offset: 0 }));
                 Int =>  asm.push(Lw(result, { base: Fake(x), offset: 0 }));
                 _ => asm.push(Ld(result, { base: Fake(x), offset: 0 }));
@@ -387,7 +391,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
 
             r;
         }
-        IfEq(a, b, body, otherwise) => {
+        IfEq(a, b, body, otherwise) | IfLe(a, b, body, otherwise) | IfNe(a, b, body, otherwise) => {
             let l_else = "else_\{t.labelcount}";
             let end = "end_\{t.labelcount}";
             t.labelcount += 1;
@@ -399,12 +403,23 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             };
 
             if (ty == Int) {
-                asm.push(Bne(Fake(a), Fake(b), l_else));
+                match expr {
+                    IfLe(_) => asm.push(Bgt(Fake(a), Fake(b), l_else));
+                    IfEq(_) => asm.push(Bne(Fake(a), Fake(b), l_else));
+                    IfNe(_) => asm.push(Beq(Fake(a), Fake(b), l_else));
+                    _ => @util.die("emit: impossible");
+                }
             } else {
                 let tmp = fake(Int);
-                asm.push(FeqD(tmp, Fake(a), Fake(b)));
+                match expr {
+                    IfLe(_) => asm.push(FleD(tmp, Fake(a), Fake(b)));
+                    IfEq(_) => asm.push(FeqD(tmp, Fake(a), Fake(b)));
+                    // IfNe does not occur here.
+                    _ => @util.die("emit: impossible");
+                }
                 asm.push(Beq(tmp, Zero, l_else));
             }
+
             
             let e_body = emit_expr(body);
             let r = fake(typeof(real(e_body)));
@@ -416,36 +431,6 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Mv(r, emit_expr(otherwise)));
             asm.push(Label(end));
             
-            r;
-        }
-        IfLe(a, b, body, otherwise) => {
-            let l_else = "else_\{t.labelcount}";
-            let end = "end_\{t.labelcount}";
-            t.labelcount += 1;
-
-            let ty: @types.Type = match typeof(a) {
-                Int | Bool => Int
-                Double => Double
-                _ => @util.die("emit: type error in if-eq (\{a}: \{typeof(a)})");
-            };
-
-            if (ty == Int) {
-                asm.push(Bgt(Fake(a), Fake(b), l_else));
-            } else {
-                let tmp = fake(Int);
-                asm.push(FleD(tmp, Fake(a), Fake(b)));
-                asm.push(Beq(tmp, Zero, l_else));
-            }
-            
-            let e_body = emit_expr(body);
-            let r = fake(typeof(real(e_body)));
-
-            asm.push(Mv(r, e_body));
-            asm.push(J(end));
-            asm.push(Label(l_else));
-
-            asm.push(Mv(r, emit_expr(otherwise)));
-            asm.push(Label(end));
             r;
         }
         Let(a, val, w) => {
@@ -604,6 +589,61 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
                 _ => A0
             }));
             rv
+        }
+        Match(a, branches) => {
+            if (branches.length() == 0) {
+                return fake(Unit);
+            }
+
+            let lcnt = t.labelcount;
+
+            let lead = fake(Int);
+            let tmp = fake(Ptr);
+            let addr = fake(Ptr);
+
+            // Load the label that we jump to
+            asm.push(Lw(lead, { base: Fake(a), offset: 0 }));
+            asm.push(Slli(lead, lead, 3));
+            asm.push(La(tmp, "match_\{lcnt}_labels"));
+            asm.push(Add(tmp, tmp, lead));
+            asm.push(Ld(addr, { base: tmp, offset: 0 }));
+            asm.push(Jr(addr));
+
+            // We need at least one branch to know the type
+            let x = branches[0];
+            let copy = asm.copy();
+            let rr = emit_expr(x.exec);
+            asm.clear();
+            let _ = copy.map(fn (x) { asm.push(x) });
+            let result = fake(typeof(real(rr)));
+
+            // Now generate every branch
+            for x in branches {
+                // Label to jump to
+                asm.push(Label("match_\{lcnt}_\{x.lead}"));
+
+                // Bind all binders
+                let mut offset = 4;
+                for y in x.binders {
+                    match typeof(y) {
+                        Int => asm.push(Lw(Fake(y), { base: Fake(a), offset: offset }));
+                        Double => asm.push(Fld(Fake(y), { base: Fake(a), offset: offset }));
+                        _ => asm.push(Ld(Fake(y), { base: Fake(a), offset: offset }));
+                    }
+                    offset += sizeof(y);
+                }
+
+                // Generate body
+                let r = emit_expr(x.exec);
+                asm.push(Mv(result, r));
+                asm.push(J("match_\{lcnt}_break"));
+            }
+            asm.push(Label("match_\{lcnt}_break"));
+            t.labelcount += 1;
+            t.matched["match_\{lcnt}_labels"] = branches.map(fn (x) {
+                "match_\{lcnt}_\{x.lead}"
+            });
+            result
         }
     }
 }
@@ -777,6 +817,48 @@ pub fn emit_externals(logger: Logger) -> Unit {
     }
 }
 
+pub fn emit_matches(logger: Logger) -> Unit {
+    for k, v in t.matched {
+        logger.write_string("\{k}:\n    .dword ");
+        logger.write_string(v.join(", "));
+    }
+}
+
+pub fn emit_enums(logger: Logger) -> Unit {
+    for _, v in @typing.e.enums {
+        let _ = v.mapi(fn (i, x) {
+            let mut offset = 4;
+            let asm: Array[RvAsm] = [];
+            asm.push(Label(x.name));
+            let _ = x.binders.mapi(fn (i, x) {
+                match x {
+                    Int => {
+                        asm.push(Sw(Arg(i), { base: S9, offset: offset }));
+                        offset += 4;
+                    }
+                    Double => {
+                        asm.push(Fsd(Arg(i), { base: S9, offset: offset }));
+                        offset += 8;
+                    }
+                    _ => {
+                        asm.push(Sd(Arg(i), { base: S9, offset: offset }));
+                        offset += 8;
+                    }
+                }
+            });
+            asm.push(Li(A0, i.to_string()));
+            asm.push(Sw(A0, { base: S9, offset: 0 }));
+            asm.push(Mv(A0, S9));
+            asm.push(Addi(S9, S9, offset));
+            asm.push(Ret)
+            for w in asm |> consolidate {
+                Show::output(w, logger);
+                logger.write_string("\n")
+            }
+        });
+    }
+}
+
 /// Entry point of program
 pub fn emit_main(body: @closure.Expr) -> @closure.FuncDef {
     asm.clear();
@@ -884,15 +966,15 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let mut opt = body
             |> consolidate;
     
-    for i = 0; i < 3; i = i + 1 {
+    for i = 0; i < 4; i = i + 1 {
         opt = opt
             |> opt_remove_identical // a0=a0
             |> opt_peephole_2
-            |> opt_inline_var // a=b => a changed to b until a was changed
-            |> opt_remove_write // consecutive assigns
-            |> opt_remove_unread 
-            |> opt_inline_loopvar // inline_var in loops
-            |> opt_squeeze_loop // use the method of copy and paste the loop to find useless instructions
+            |> opt_inline_var
+            |> opt_remove_write
+            |> opt_remove_unread
+            |> opt_inline_loopvar
+            |> opt_squeeze_loop;
     }
 
     opt = opt
@@ -905,35 +987,35 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     let post: Array[RvAsm] = [];
 
     let called = has_call(opt);
-    let mut all_used = @immut/hashset.new();
+    let mut must_save = @immut/hashset.new();
     for x in opt {
         let file = reg_used(x);
         if (file.rd.is_empty().not()) {
-            all_used = all_used.add(file.rd.unwrap());
+            must_save = must_save.add(file.rd.unwrap());
         }
         if (file.rs1.is_empty().not()) {
-            all_used = all_used.add(file.rs1.unwrap());
+            must_save = must_save.add(file.rs1.unwrap());
         }
         if (file.rs2.is_empty().not()) {
-            all_used = all_used.add(file.rs2.unwrap());
+            must_save = must_save.add(file.rs2.unwrap());
         }
     }
 
-    let copy = @immut/hashset.T::from_iter(all_used.iter());
+    let copy = @immut/hashset.T::from_iter(must_save.iter());
     let saved = [..reg_callee_saved_list, ..freg_callee_saved_list];
 
-    all_used = @immut/hashset.T::new();
+    must_save = @immut/hashset.T::new();
 
     for r in copy {
         if (saved.contains(r).not()) {
             continue;
         }
-        all_used = all_used.add(r);
+        must_save = must_save.add(r);
     }
 
     // If no registers are saved and the only call is tail call
     // (special case of tail-call optimization)
-    let mut is_tail = all_used.size() == 0 && opt.length() > 0;
+    let mut is_tail = must_save.size() == 0 && opt.length() > 0;
     if (is_tail) {
         let last = opt.length() - 1;
         for x in opt[:last] {
@@ -956,10 +1038,10 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
     }
 
     if (called && is_tail.not()) {
-        all_used = all_used.add(Ra);
+        must_save = must_save.add(Ra);
     }
 
-    for r in all_used {
+    for r in must_save {
         if (is_intreg(r)) {
             pre.push(Sd(r, { base: Sp, offset: offset }));
             post.push(Ld(r, { base: Sp, offset: offset }));
@@ -1007,10 +1089,12 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
         }
     }
 
-    offset += 8 * temp_used.size();
+    if (has_call(body)) {
+        offset += 8 * temp_used.size();
+    }
     offset = (offset.to_double() / 16.0).ceil().to_int() * 16;
 
-    let full_body =
+    let mut full_body =
         if (offset > 0) {[
             Addi(Sp, Sp, -offset),
             ..pre,
@@ -1024,6 +1108,20 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             [..pre, ..called, ..post, Ret]
         }
 
+    // If is_tail, the final jump is a call;
+    // In this case opt_remove_write etc. cannot detect it correctly
+
+    // Moreover, it is essential that there is no register saving
+    // otherwise opt_remove_write will eliminate them all
+    if (is_tail.not() && has_call(opt).not() && offset == 0) {
+        full_body = full_body
+            |> opt_disjump
+            |> opt_remove_identical
+            |> opt_peephole_2
+            |> opt_remove_write;
+    }
+
+
     AssemblyFunction :: {
         name:
             // We also want entry point to be unmodified
@@ -1032,7 +1130,9 @@ fn emit_fn(fun: @closure.FuncDef) -> AssemblyFunction {
             } else {
                 fun.old_name.to_string()
             },
-        is_extern: externs.contains(fun.name._),
+        is_extern:
+            // External function, or enum constructors
+            externs.contains(fun.name._) || fun.old_name.slot == 0,
         body: full_body
     }
 }

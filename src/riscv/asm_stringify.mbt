@@ -6,8 +6,12 @@ pub fn print_functions(asm : Array[AssemblyFunction]) -> String {
         logger.write_string("\n")
     }
 
+    emit_enums(logger);
+
     emit_global(logger);
     emit_externals(logger);
+    emit_matches(logger);
+    
     emit_bss(logger);
     
     return logger.to_string();

@@ -1,3 +1,10 @@
+pub fn debug_print(body: Array[RvAsm]) -> Unit {
+    for x in body {
+        println(x);
+    }
+    println("\n\n")
+}
+
 fn defake(reg: Reg) -> Reg {
     match reg {
         Fake(name) => match t.regs[name] {
@@ -79,8 +86,8 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
                 used_labels = used_labels.add(label);
             }
             La(_, label) => {
-                // The only kind of label that might jump backwards
-                if (label._.ends_with("tailrec")) {
+                // Note: we can skip through the label for if-else 
+                if (label._.ends_with("tailrec") || label._.starts_with("match_")) {
                     last_read.clear();
                     last_written.clear();
                 }
@@ -118,9 +125,10 @@ pub fn opt_remove_write(body: Array[RvAsm]) -> Array[RvAsm] {
         }
 
         match body[i] {
-            Label(x) as label => if (used_labels.contains(x)) {
-                opt.push(label);
-            }
+            Label(x) as label =>
+                if (used_labels.contains(x) || x.starts_with("match_")) {
+                    opt.push(label);
+                }
             t => opt.push(t);
         }
     }
@@ -332,9 +340,35 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
+            (Ld(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Ld(b, mem));
+                    result.push(Mv(a, b));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Lw(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Lw(b, mem));
+                    result.push(Mv(a, b));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Fld(a, mem), Mv(b, c)) => {
+                // same goes for load
+                if (a == c) {
+                    result.push(Fld(b, mem));
+                    result.push(Mv(a, b));
+                    i += 2;
+                    continue;
+                }
+            }
             (Add(a, b, c), Add(d, e, f)) => {
                 // add a, b, c; add d, b, c => add a, b, c; mv d, a
-                // Perhaps makes more optimization usable
                 if (b == e && c == f) {
                     result.push(Add(a, b, c));
                     result.push(Mv(d, a));
@@ -342,21 +376,87 @@ pub fn opt_peephole_2(body: Array[RvAsm]) -> Array[RvAsm] {
                     continue;
                 }
             }
-            (Ld(a, mem), Ld(b, mem2)) => {
-                // ld a, 0(t); ld b, 0(t) => ld a, 0(t); mv b, a
-                // This requires a != t
-                if (mem == mem2 && mem2.base != a) {
-                    result.push(Ld(a, mem));
-                    result.push(Mv(b, a));   
+            (Addi(a, b, c), Ld(d, { base: e, offset: f })) => {
+                // addi a, b, c; ld d, f(a) => addi a, b, c; ld d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Ld(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Ld(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Ld(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
                     i += 2;
                     continue;
                 }
             }
-            (Ld(a, mem), Mv(b, c)) => {
-                // same goes for load
-                if (a == c) {
-                    result.push(Ld(b, mem));
-                    result.push(Mv(a, b));
+            (Addi(a, b, c), Lw(d, { base: e, offset: f })) => {
+                // addi a, b, c; lw d, f(a) => addi a, b, c; lw d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Lw(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Lw(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Lw(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Fld(d, { base: e, offset: f })) => {
+                // addi a, b, c; fld d, f(a) => addi a, b, c; fld d, f+c(b)
+                if (a == e) {
+                    if (a != b) {
+                        result.push(Addi(a, b, c));
+                        result.push(Fld(d, { base: b, offset: c + f }));
+                    } else if (a == d) {
+                        result.push(Fld(d, { base: a, offset: c + f }));
+                    } else { // a == b && a != d
+                        result.push(Fld(d, { base: b, offset: c + f }));
+                        result.push(Addi(a, b, c));
+                    }
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Sd(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Sd(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Sw(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Sw(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Addi(a, b, c), Fsd(d, { base: e, offset: f })) => {
+                // same as above
+                if (a == e && a != b) {
+                    result.push(Addi(a, b, c));
+                    result.push(Fsd(d, { base: b, offset: c + f }));
+                    i += 2;
+                    continue;
+                }
+            }
+            (Ld(a, mem), Ld(b, mem2)) => {
+                // ld a, 0(t); ld b, 0(t) => ld a, 0(t); mv b, a
+                // Note the opposite does not hold
+                if (mem == mem2 && mem.base != a) { 
+                    result.push(Ld(a, mem));
+                    result.push(Mv(b, a));
                     i += 2;
                     continue;
                 }
@@ -712,8 +812,8 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     // Identify all changed/unchanged loop variables
-    let changed = [];
-    let unchanged = [];
+    let changed = arg_list;
+    let unchanged = [Zero];
     for x in body[reload:end] {
         match x {
             Mv(a, b) => {
@@ -727,23 +827,83 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
         }
     }
 
+    let called = has_call(body);
+    let mut saved = false;
+
+    for x in body[begin:reload] {
+        match x {
+            // For saves, record every place that has changed
+            Fsd(_) | Sd(_) | Sw(_) => {
+                saved = true;
+            }
+
+            // Record aliases
+            // Also, propagate unchangedness
+            Mv(a, b) | FmvD(a, b) => {
+                if (unchanged.contains(b) && changed.contains(b).not()) {
+                    unchanged.push(a);
+                }
+            }
+
+            // Handle these later
+            Lw(_) | Ld(_) | Fld(_) => ()
+
+            _ => {
+                let used = reg_used(x);
+                if ((used.rs1.is_empty() || unchanged.contains(used.rs1.unwrap())) &&
+                    (used.rs2.is_empty() || unchanged.contains(used.rs2.unwrap())) &&
+                     used.rd.is_empty().not()) {
+                        let rd = used.rd.unwrap();
+                        unchanged.push(rd);
+                }
+            }
+        }
+    }
+
+    // This must be after we detected `saved`
+    for x in body[begin:reload] {
+        if (saved || called) {
+            break;
+        }
+
+        match x {
+            Lw(rd, { base: rs1, .. }) | Ld(rd, { base: rs1, .. }) | Fld(rd, { base: rs1, .. }) => {
+                if (unchanged.contains(rs1)) {
+                    unchanged.push(rd);
+                }
+            }
+            _ => ()
+        }
+    }
+
     // Each unchanged variable can be viewed as a constant;
     // we can extract everything related to them
     let uninvolved = [];
     let involved = [];
     for x in body[begin:reload] {
         match x {
-            // We can't move these things out
-            Sd(_) | Sw(_) | Bgt(_) | Bne(_) |
+            // We can never move these things out
+            Bgt(_) | Bne(_) | Sw(_) | Sd(_) |
             Beq(_) | J(_) | Jalr(_) | Call(_) |
-            Comment(_) | Label(_) | Ld(_) | Lw(_) |
-            Fld(_) | Fsd(_) => {
+            Comment(_) | Label(_) | Fsd(_) => {
                 involved.push(x);
             }
 
-            Mv(a, b) => {
-                if (is_fake(a) && is_fake(b) && unchanged.contains(b)) {
-                    unchanged.push(a);
+            // We can move loads out, if the places have never changed
+            Lw(_, { base: rs1, .. }) | Ld(_, { base: rs1, .. }) | Fld(_, { base: rs1, .. }) => {
+                // When there is a function call,
+                // it is possible that the call is doing sd/sw/fsd to anywhere
+                // So it isn't safe to assume nothing changes,
+                // even though rs1 is never saved to IN THIS FUNCTION
+                if (called.not() && saved.not() && unchanged.contains(rs1)) {
+                    uninvolved.push(x);
+                } else {
+                    involved.push(x);
+                }
+            }
+
+            Mv(a, b) | FmvD(a, b) => {
+                if (is_fake(a) && (is_fake(b) || b == Zero) && unchanged.contains(b)) {
                     uninvolved.push(x);
                 } else {
                     involved.push(x);
@@ -755,9 +915,6 @@ pub fn opt_loop_invariant(body: Array[RvAsm]) -> Array[RvAsm] {
                 if ((used.rs1.is_empty() || unchanged.contains(used.rs1.unwrap())) &&
                     (used.rs2.is_empty() || unchanged.contains(used.rs2.unwrap()))) {
                     uninvolved.push(x);
-                    if (used.rd.is_empty().not()) {
-                        unchanged.push(used.rd.unwrap());
-                    }
                 } else {
                     involved.push(x);
                 }
@@ -814,25 +971,43 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
 
     let (begin, end) = range.unwrap();
     let invar: Map[Reg, String] = {};
+    let ref: Map[Reg, Reg] = {};
+    let beginning = [];
 
     for x in body[:begin] {
-        // These are the exact things we extract for loop invariants
-        // if you change that function, must also change here
         match x {
-            La(a, Label(x)) | Li(a, x)=> {
-                invar[a] = x;
+            La(a, Label(z)) | Li(a, z)=> {
+                invar[a] = z;
+                beginning.push(x);
+            }
+            Mv(a, b) => {
+                if (arg_list.contains(a).not() && arg_list.contains(b).not()) {
+                    ref[a] = b;
+                } else {
+                    beginning.push(x);
+                }
             }
             _ => {
                 let used = reg_used(x);
                 if (used.rd.is_empty().not()) {
                     invar.remove(used.rd.unwrap());
+                    ref.remove(used.rd.unwrap());
                 }
+                beginning.push(x);
             }
         }
     }
 
+    fn rename(r) {
+        match ref[r] {
+            Some(t) => t
+            None => r
+        }
+    }
+
     let middle = [];
-    for x in body[begin: end] {
+    for y in body[begin: end] {
+        let x = register_rename(y, rename, rename);
         match x {
             Add(a, b, c) => {
                 if (invar.contains(c)) {
@@ -890,7 +1065,7 @@ pub fn opt_inline_loopvar(body: Array[RvAsm]) -> Array[RvAsm] {
         middle.push(x);
     }
     
-    new_body = [..body[:begin], ..middle, ..body[end: ]];
+    new_body = [..beginning, ..middle, ..body[end: ]];
 
     return new_body;
 }
@@ -998,6 +1173,42 @@ pub fn opt_squeeze_loop(body: Array[RvAsm]) -> Array[RvAsm] {
     }
 
     let result = [..body[:begin], ..middle_opt, ..body[end:]];
+    return result;
+}
+
+/// If there are only a few instructions after a jump,
+/// then copy it there
+/// This is only applicable to `full_body` (with return and register protection);
+/// Don't use it with `opt`.
+pub fn opt_disjump(body: Array[RvAsm]) -> Array[RvAsm] {
+    // For each label, how many instructions are after it
+    let labels = {};
+    let len = body.length();
+    let _ = body.mapi(fn (i, x) {
+        match x {
+            Label(x) => {
+                labels[x] = len - i;
+            }
+            _ => ()
+        }
+    });
+
+    let result = [];
+    for x in body {
+        match x {
+            J(Label(x)) => {
+                // It is possible to jump to somewhere not declared in the function;
+                // the tail-jump is an example
+                if (labels[x].or(5) <= 4) {
+                    let inst = labels[x].unwrap();
+                    result.append([..body[len-inst+1:]]);
+                } else {
+                    result.push(J(Label(x)));
+                }
+            }
+            t => result.push(t);
+        }
+    }
     return result;
 }
 
