@@ -580,7 +580,7 @@ fn emit_expr(expr: @closure.Expr) -> Reg {
             asm.push(Jalr(f));
 
             let ret_ty = match typeof(closure) {
-                Fun(_, r) => r
+                Fun(_, r) => @typing.real(r)
                 _ => @util.die("emit: calling non-function: \{typeof(closure)}")
             }
             let rv = fake(ret_ty);

@@ -42,6 +42,9 @@ pub fn real(ty: @types.Type) -> @types.Type {
                 @util.die("typing: cannot identify type \{z}");
             }
         }
+        Fun(arr, ret) => Fun(arr.map(real), real(ret));
+        Array(ty) => Array(real(ty));
+        Tuple(arr) => Tuple(arr.map(real));
         t => t
     }
 }

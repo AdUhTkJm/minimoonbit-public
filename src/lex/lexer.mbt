@@ -35,6 +35,9 @@ pub enum Token {
     Not
     Enum
     Match
+    Template
+    Of
+    End
     Ident(String)
     LitInt(Int)
     EOF
@@ -52,6 +55,8 @@ pub fn Token::is(self: Token, other: Token) -> Bool {
     }
 }
 
+
+let macro: Map[Token, (Array[Token], Array[Token])] = Map::new();
 
 pub fn is_digit(c: Char) -> Bool {
     return ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'].contains(c);
@@ -85,6 +90,9 @@ fn distinguish(z: Array[Char]) -> Token {
         "not" => Not
         "enum" => Enum
         "match" => Match
+        "template" => Template
+        "of" => Of
+        "end" => End
         _ => Ident(y)
     }
 }
@@ -158,7 +166,7 @@ pub fn lex(input: String) -> Array[Token] {
                 result.push(Lequal);
                 x += 1;
             } else {
-                @util.die("Lexing error: '<' must be followed by '='");
+                @util.die("lex: '<' must be followed by '='");
             }
 
             
@@ -171,15 +179,11 @@ pub fn lex(input: String) -> Array[Token] {
             }
 
             '\x00' => ()
-            _ => @util.die("Lexing error: \{c} (with int \{c.to_int()})");
+            _ => @util.die("lex: \{c} (with int \{c.to_int()})");
         }
         x += 1;
     }
-
-
-
-    let macro: Map[Token, (Array[Token], Array[Token])] = Map::new();
-
+    
     let mut st = 0;
     let name: Array[Token] = [];
     let tokens: Array[Token] = [];
@@ -188,7 +192,7 @@ pub fn lex(input: String) -> Array[Token] {
     for x in result {
         if(x == Define) {
             if(st != 0) {
-                @util.die("Lexing error: define , colon and enifed must match");
+                @util.die("lex: define, ':' and enifed must match");
             }
             st = 1;
             continue;
@@ -199,88 +203,97 @@ pub fn lex(input: String) -> Array[Token] {
         }
         if(x == Enifed) {
             if(st != 2) {
-                @util.die("Lexing error: define , colon and enifed must match");
+                @util.die("lex: define, ':' and enifed must match");
             }
             let args: Array[Token] = [];
             if(name.length() != 1) {
                 if(name.length() < 4 || name.length()%2 != 0) {
-                    @util.die("Lexing error: invalid arguments");
+                    @util.die("lex: invalid arguments");
                 }
                 if(name[1]!=LPar || name[name.length()-1]!=RPar) {
-                    @util.die("Lexing error: arguments not match");
+                    @util.die("lex: parentheses don't match");
                 }
-                let mut i=2;
-                while i<name.length()-1 {
-                    if(i%2==0){
+                let mut i = 2;
+                while i < name.length() - 1 {
+                    if(i % 2 == 0){
                         match name[i] {
                             Ident(_) => ()
-                            _ => @util.die("Lexing error: arguments not match");
+                            _ => @util.die("lex: arguments not match");
                         }
                         args.push(name[i]);
                     } else {
-                        if(name[i]!=Comma) {
-                            @util.die("Lexing error: arguments not match");
+                        if(name[i] != Comma) {
+                            @util.die("lex: arguments not match");
                         }
                     }
-                    i=i+1;
+                    i += 1;
                 }
             }
             macro[name[0]] = (args, tokens);
             st = 0;
             continue;
         }
-        if(st==0){
+        if (st == 0) {
             mid_result.push(x);
         }
-        if(st==1) {
+        if (st == 1) {
             name.push(x);
         }
-        if(st==2){
+        if (st == 2){
             tokens.push(x);
         }
     }
     if(st != 0) {
-        @util.die("Lexing error: define , colon and enifed must match");
+        @util.die("lex: define, ':' and enifed must match");
     }
+    
+    let final_result = mid_result
+        |> macro_process
+        |> template_process;
 
+    final_result.push(EOF);
+    return final_result;
+}
+
+fn macro_process(mid_result: Array[Token]) -> Array[Token] {
     let final_result: Array[Token] = [];
 
     let mut i = 0;
     let mid_len = mid_result.length();
     while i < mid_len {
-        let x=mid_result[i];
-        if(macro.contains(x)) {
+        let x = mid_result[i];
+        if (macro.contains(x)) {
             let (args, tokens) = macro[x].unwrap();
             let len = args.length();
-            if(len == 0) {
+            if (len == 0) {
                 final_result.append(tokens);
                 i += 1;
                 continue;
             }
-            i=i+1;
-            if(i>=mid_len || mid_result[i]!=LPar) {
-                @util.die("Lexing error: macro must be followed by (");
+            i += 1;
+            if (i >= mid_len || mid_result[i] != LPar) {
+                @util.die("lex: macro must be followed by (");
             }
-            i=i+1;
+            i += 1;
             let map_token: Map[Token, Array[Token]] = Map::new();
             let mut j = 0;
             while j < len {
                 let arr_token: Array[Token] = [];
-                if(j<len-1){
-                    while (i<mid_len&&mid_result[i] != Comma){
+                if(j < len - 1){
+                    while (i < mid_len && mid_result[i] != Comma){
                         arr_token.push(mid_result[i]);
                         i += 1;
                     }
                 }
                 else{
-                    while (i<mid_len&&mid_result[i] != RPar){
+                    while (i < mid_len && mid_result[i] != RPar){
                         arr_token.push(mid_result[i]);
                         i += 1;
                     }
                 }
-                i=i+1;
-                if(arr_token.length() == 0 || i>=mid_len) {
-                    @util.die("Lexing error: invalid arguments");
+                i += 1;
+                if(arr_token.length() == 0 || i >= mid_len) {
+                    @util.die("lex: invalid arguments");
                 }
                 map_token[args[j]] = arr_token;
                 j += 1;
@@ -298,15 +311,63 @@ pub fn lex(input: String) -> Array[Token] {
         }
         i += 1;
     }
+    
 
-    // for x in mid_result {
-    //     if(macro.contains(x)) {
-    //         final_result.append(macro[x].unwrap());
-    //     } else {
-    //         final_result.push(x);
-    //     }
-    // }
-
-    final_result.push(EOF);
     return final_result;
+}
+
+fn template_process(body: Array[Token]) -> Array[Token] {
+    macro.clear();
+
+    let mut i = 0;
+    while (i < body.length()) {
+        if (body[i] == Template) {
+            let def = [LBrace, Fn];
+
+            let id = match body[i + 1] {
+                Ident(s) => s
+                _ => @util.die("lex: identifier expected after template")
+            }
+            def.push(Ident("__templated_" + id));
+
+            if (body[i + 2] != Of) {
+                @util.die("lex: expected 'of'");
+            }
+            i += 3;
+
+            let args = [];
+            while (body[i] != Colon) {
+                args.push(body[i]);
+                if (body[i + 1] != Comma && body[i + 1] != Colon) {
+                    @util.die("lex: expected ',' or ':', but seen \{body[i + 1]}");
+                } else {
+                    i += 1;
+                }
+            }
+
+            let mut j = i + 1;
+            while (body[j] != End) {
+                def.push(body[j]);
+                j += 1;
+            }
+
+            def.append([Ident("__templated_" + id), RBrace]);
+
+            macro[Ident(id)] = (args, def);
+        }
+        i += 1;
+    }
+    
+    // Delete the template part
+    let result = [];
+    let mut in_template = false;
+    for x in body {
+        match x {
+            End => in_template = false;
+            Template => in_template = true;
+            s => if (in_template.not()) { result.push(s); }
+        }
+    }
+    
+    return result |> macro_process;
 }
